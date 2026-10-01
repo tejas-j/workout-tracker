@@ -49,6 +49,26 @@ try {
         }
       }
     },
+    signInGuest: () => A.signInAnonymously(auth),
+    // Upgrades a guest account to Google, keeping its uid and cloud data.
+    // If that Google account already exists, switch to it instead; local data
+    // is then merged into it by the next sync.
+    async linkGoogle() {
+      try {
+        await A.linkWithPopup(auth.currentUser, provider);
+      } catch (e) {
+        if (e.code === 'auth/credential-already-in-use') {
+          const cred = A.GoogleAuthProvider.credentialFromError(e);
+          if (!cred) throw e;
+          await A.signInWithCredential(auth, cred);
+        } else if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+          await A.linkWithRedirect(auth.currentUser, provider);
+        } else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+          throw e;
+        }
+      }
+      await auth.currentUser?.reload();
+    },
     signOut: () => A.signOut(auth),
     async fetchWorkouts() {
       const snap = await F.getDocs(workoutsCol(uid()));

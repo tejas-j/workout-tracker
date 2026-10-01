@@ -131,6 +131,13 @@
   .inline-row input{margin-bottom:0;}
   .src-tag{font-size:0.72rem;color:var(--ink-soft);margin:0 0 8px;}
   .history-head .del-w{background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:0.8rem;margin-left:8px;}
+  .seg{display:flex;gap:2px;background:var(--line);border-radius:8px;padding:3px;margin-bottom:14px;}
+  .seg button{flex:1;border:none;background:transparent;padding:7px 0;font-family:'Work Sans';font-size:0.82rem;
+    font-weight:600;color:var(--ink-soft);border-radius:6px;cursor:pointer;}
+  .seg button.active{background:var(--paper-raised);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.08);}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .activity-badge{display:inline-block;font-size:0.7rem;font-weight:600;color:#fff;background:var(--olive);
+    border-radius:4px;padding:1px 6px;margin-right:6px;vertical-align:1px;}
   @keyframes spin{to{transform:rotate(360deg);}}
   @media (prefers-reduced-motion:reduce){.spinner{animation:none;}}
 </style>
@@ -165,15 +172,51 @@
 
     <div class="card">
       <h2>Log today's workout</h2>
-      <label for="logDuration">Duration (minutes)</label>
-      <input type="number" id="logDuration" min="1" value="30">
-      <span class="eyebrow" style="margin-top:6px;">Exercises</span>
-      <div id="exerciseRows"></div>
-      <div class="btn-row" style="margin-top:6px;">
-        <button class="btn btn-ghost" id="addExerciseBtn">+ Add exercise</button>
+      <div class="seg" id="logMode">
+        <button data-mode="strength" class="active">Strength</button>
+        <button data-mode="activity">Activity / sport</button>
       </div>
-      <div class="btn-row" style="margin-top:14px;">
-        <button class="btn btn-primary" id="saveLogBtn">Save workout</button>
+      <div id="strengthForm">
+        <label for="logDuration">Duration (minutes)</label>
+        <input type="number" id="logDuration" min="1" value="30">
+        <span class="eyebrow" style="margin-top:6px;">Exercises</span>
+        <div id="exerciseRows"></div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn btn-ghost" id="addExerciseBtn">+ Add exercise</button>
+        </div>
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn btn-primary" id="saveLogBtn">Save workout</button>
+        </div>
+      </div>
+      <div id="activityForm" style="display:none;">
+        <label for="actName">Activity</label>
+        <input type="text" id="actName" list="activityList" placeholder="e.g. Outdoor walk, Pickleball">
+        <datalist id="activityList"></datalist>
+        <div class="two-col">
+          <div>
+            <label for="actDuration">Duration (minutes)</label>
+            <input type="number" id="actDuration" min="1" value="45">
+          </div>
+          <div>
+            <label for="actEffort">Effort</label>
+            <select id="actEffort">
+              <option value="">-</option><option>Easy</option><option selected>Moderate</option><option>Hard</option>
+            </select>
+          </div>
+          <div>
+            <label for="actDistance">Distance (optional)</label>
+            <input type="number" id="actDistance" min="0" step="0.1" placeholder="e.g. 2.5">
+          </div>
+          <div>
+            <label for="actDistUnit">Unit</label>
+            <select id="actDistUnit"><option>mi</option><option>km</option></select>
+          </div>
+        </div>
+        <label for="actNotes">Notes (optional)</label>
+        <input type="text" id="actNotes" placeholder="e.g. doubles, 3 games">
+        <div class="btn-row" style="margin-top:4px;">
+          <button class="btn btn-primary" id="saveActivityBtn">Save activity</button>
+        </div>
       </div>
       <div id="saveStatus" class="status"></div>
     </div>
@@ -196,12 +239,20 @@
           Sign in with Google to sync your history and equipment across devices.
           Without signing in, everything stays in this browser.
         </p>
-        <button class="btn btn-primary" id="signInBtn" disabled>Sign in with Google</button>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="signInBtn" disabled>Sign in with Google</button>
+          <button class="btn btn-ghost" id="guestBtn" disabled>Continue as guest</button>
+        </div>
+        <p class="settings-note">
+          Guest mode backs up this device's data to the cloud without a Google account, but it
+          can't sync to other devices until you link Google.
+        </p>
       </div>
       <div id="syncOn" style="display:none;">
-        <p class="settings-note" style="margin-top:0;">Signed in as <b id="syncEmail"></b>.</p>
+        <p class="settings-note" style="margin-top:0;" id="syncWho"></p>
         <div class="btn-row">
           <button class="btn btn-primary" id="syncNowBtn">Sync now</button>
+          <button class="btn btn-accent" id="linkGoogleBtn" style="display:none;">Link Google account</button>
           <button class="btn btn-ghost" id="signOutBtn">Sign out</button>
         </div>
       </div>
@@ -275,7 +326,7 @@ function setStatus(elId, text, kind) {
   el.className = 'status ' + (kind || '');
   if (kind === 'ok') setTimeout(() => { el.textContent = ''; }, 2500);
 }
-function fmtReps(e) { return e.unit === 'sec' ? `${e.reps}s` : `${e.reps}`; }
+function fmtReps(e) { return e.unit === 'sec' ? `${e.reps}s` : e.unit === 'min' ? `${e.reps} min` : `${e.reps}`; }
 
 // ---------- State ----------
 let workouts = load(STORAGE_KEY, []);
@@ -358,7 +409,7 @@ function addExerciseRow(prefill) {
       <input type="number" class="ex-sets" min="1" value="${esc(prefill?.sets || 3)}">
     </div>
     <div style="width:64px;">
-      <div class="small-label">${prefill?.unit === 'sec' ? 'Secs' : 'Reps'}</div>
+      <div class="small-label">${prefill?.unit === 'sec' ? 'Secs' : prefill?.unit === 'min' ? 'Mins' : 'Reps'}</div>
       <input type="number" class="ex-reps" min="1" value="${esc(prefill?.reps || 10)}">
     </div>
     <div style="width:74px;">
@@ -406,9 +457,38 @@ $('saveLogBtn').addEventListener('click', () => {
   resetExerciseRows();
 });
 
+// ---------- Log mode + activity logging ----------
+function setLogMode(mode) {
+  document.querySelectorAll('#logMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  $('strengthForm').style.display = mode === 'strength' ? 'block' : 'none';
+  $('activityForm').style.display = mode === 'activity' ? 'block' : 'none';
+}
+document.querySelectorAll('#logMode button').forEach(b => b.addEventListener('click', () => setLogMode(b.dataset.mode)));
+$('activityList').innerHTML = ACTIVITIES.map(a => `<option value="${esc(a)}">`).join('');
+
+$('saveActivityBtn').addEventListener('click', () => {
+  const activity = $('actName').value.trim();
+  const duration = parseInt($('actDuration').value) || 0;
+  if (!activity || duration <= 0) {
+    setStatus('saveStatus', 'Enter an activity and a duration.', 'err');
+    return;
+  }
+  const entry = { id: Date.now(), date: new Date().toISOString(), type: 'activity', activity, duration, exercises: [] };
+  const distance = parseFloat($('actDistance').value);
+  if (distance > 0) { entry.distance = distance; entry.distanceUnit = $('actDistUnit').value; }
+  if ($('actEffort').value) entry.effort = $('actEffort').value;
+  const notes = $('actNotes').value.trim();
+  if (notes) entry.notes = notes;
+  workouts.unshift(entry);
+  save(STORAGE_KEY, workouts);
+  cloudCall(() => cloud.saveWorkout(entry));
+  setStatus('saveStatus', 'Saved.', 'ok');
+  $('actName').value = ''; $('actDistance').value = ''; $('actNotes').value = '';
+});
+
 // ---------- History ----------
 function totalVolume(w) {
-  return w.exercises.reduce((sum, e) => sum + (e.sets * e.reps * (e.weight || 1)), 0);
+  return w.exercises.reduce((sum, e) => sum + (e.unit ? 0 : e.sets * e.reps * (e.weight || 1)), 0);
 }
 function renderHistory() {
   const list = $('historyList');
@@ -416,8 +496,22 @@ function renderHistory() {
     list.innerHTML = '<div class="empty">No workouts logged yet. Log one from the Today tab.</div>';
     return;
   }
-  const maxVolume = Math.max(...workouts.map(totalVolume), 1);
+  const maxVolume = Math.max(...workouts.filter(w => w.type !== 'activity').map(totalVolume), 1);
   list.innerHTML = workouts.map(w => {
+    const dateStr = new Date(w.date).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
+    const delBtn = `<button class="del-w" data-id="${esc(w.id)}" title="Delete">Delete</button>`;
+    if (w.type === 'activity') {
+      const meta = [`${esc(w.duration)} min`, w.effort && esc(w.effort), w.distance && `${esc(w.distance)} ${esc(w.distanceUnit || 'mi')}`]
+        .filter(Boolean).join(' · ');
+      return `
+      <div class="history-item">
+        <div class="history-head">
+          <span class="history-date">${dateStr}</span>
+          <span class="history-meta">${meta} ${delBtn}</span>
+        </div>
+        <div class="ex-list"><span class="activity-badge">Activity</span><b>${esc(w.activity)}</b>${w.notes ? ' — ' + esc(w.notes) : ''}</div>
+      </div>`;
+    }
     const vol = totalVolume(w);
     const plateCount = Math.max(1, Math.round((vol / maxVolume) * 12));
     const plates = Array.from({length: 12}, (_, i) =>
@@ -429,9 +523,8 @@ function renderHistory() {
     return `
       <div class="history-item">
         <div class="history-head">
-          <span class="history-date">${new Date(w.date).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'})}</span>
-          <span class="history-meta">${esc(w.duration)} min${region} · ${Math.round(vol).toLocaleString()} lb moved
-            <button class="del-w" data-id="${esc(w.id)}" title="Delete workout">Delete</button></span>
+          <span class="history-date">${dateStr}</span>
+          <span class="history-meta">${esc(w.duration)} min${region}${vol ? ` · ${Math.round(vol).toLocaleString()} lb moved` : ''} ${delBtn}</span>
         </div>
         <div class="plate-bar">${plates}</div>
         <div class="ex-list">${exList}</div>
@@ -515,13 +608,13 @@ function lastWeights() {
 
 async function aiSuggestion(key, minutes) {
   const regionLabel = REGIONS[currentRegion].label;
-  const recent = workouts.slice(0, 5).map(w => ({
-    date: String(w.date).slice(0, 10),
-    exercises: w.exercises.map(e => `${e.name} ${e.sets}x${e.reps}${e.unit === 'sec' ? 's' : ''}@${e.weight}lb`)
-  }));
+  const recent = workouts.slice(0, 7).map(w => w.type === 'activity'
+    ? { date: String(w.date).slice(0, 10), activity: `${w.activity} ${w.duration}min${w.effort ? ' ' + w.effort : ''}` }
+    : { date: String(w.date).slice(0, 10),
+        exercises: w.exercises.map(e => `${e.name} ${e.sets}x${fmtReps(e)}${e.weight ? '@' + e.weight + 'lb' : ''}`) });
   const systemPrompt = `You suggest a single home strength workout. Use ONLY the equipment listed by the user (plus bodyweight). Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly this shape:
-{"focus": "short label like 'Upper body push'", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec"}]}
-Use unit "sec" (reps = seconds held) only for holds like planks. Weight is in lb, 0 for bodyweight. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. Vary exercises and avoid repeating the same movements as recent history when possible.`;
+{"focus": "short label like 'Upper body push'", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec" or "min"}]}
+Use unit "sec" (reps = seconds per set) for holds and timed intervals, and "min" (reps = minutes) for steady cardio blocks. Weight is in lb, 0 for bodyweight. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. History may include sports or cardio activities; account for their fatigue (e.g. go easier on legs after a long hike). Vary exercises and avoid repeating the same movements as recent history when possible.`;
   const userPrompt = `Minutes available: ${minutes}.
 Focus: ${regionLabel}.
 Equipment: ${equipment.length ? equipment.join(', ') : 'none'}.
@@ -550,7 +643,7 @@ Suggest today's workout.`;
       sets: Math.max(1, Math.round(Number(e.sets)) || 3),
       reps: Math.max(1, Math.round(Number(e.reps)) || 10),
       weight: Math.max(0, Number(e.weight) || 0),
-      ...(e.unit === 'sec' ? { unit: 'sec' } : {})
+      ...(e.unit === 'sec' || e.unit === 'min' ? { unit: e.unit } : {})
     }))
   };
 }
@@ -590,12 +683,13 @@ $('suggestBtn').addEventListener('click', async () => {
       <h3>${esc(suggestion.focus)}</h3>
       <p class="src-tag">${esc(source)}${suggestion.estimatedMinutes ? ` · about ${suggestion.estimatedMinutes} min` : ''}</p>
       ${suggestion.exercises.map(e => `
-        <div class="suggestion-ex"><b>${esc(e.name)}</b> — ${esc(e.sets)} sets × ${esc(e.unit === 'sec' ? e.reps + ' sec' : e.reps + ' reps')}${e.weight ? ' @ ' + esc(e.weight) + ' lb' : ''}</div>`).join('')}
+        <div class="suggestion-ex"><b>${esc(e.name)}</b> — ${esc(e.sets)} set${e.sets == 1 ? '' : 's'} × ${esc(fmtAmount(e))}${e.weight ? ' @ ' + esc(e.weight) + ' lb' : ''}</div>`).join('')}
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn btn-primary" id="useSuggestionBtn">Use this — fill log form</button>
       </div>
     </div>`;
   $('useSuggestionBtn').addEventListener('click', () => {
+    setLogMode('strength');
     resetExerciseRows(suggestion.exercises);
     $('logDuration').value = minutes;
     window.scrollTo({top: $('exerciseRows').offsetTop - 20, behavior: 'smooth'});
@@ -614,13 +708,19 @@ function cloudCall(fn) {
 }
 function syncMessage(err) {
   return err?.code === 'permission-denied'
-    ? 'permission denied. Check the Firestore rules allow your account.'
+    ? 'permission denied. Check the Firestore rules allow this account.'
+    : err?.code === 'auth/admin-restricted-operation' || err?.code === 'auth/operation-not-allowed'
+    ? 'this sign-in method is not enabled in Firebase.'
     : (err?.message || String(err));
 }
 function renderSyncUI() {
   $('syncOff').style.display = cloudUser ? 'none' : 'block';
   $('syncOn').style.display = cloudUser ? 'block' : 'none';
-  $('syncEmail').textContent = cloudUser?.email || '';
+  const guest = cloudUser?.isAnonymous;
+  $('syncWho').innerHTML = !cloudUser ? ''
+    : guest ? '<b>Guest</b>: backed up for this device only. Link Google to sync across devices and keep access if this browser is cleared.'
+    : `Signed in as <b>${esc(cloudUser.email || 'Google user')}</b>.`;
+  $('linkGoogleBtn').style.display = guest ? '' : 'none';
 }
 
 async function syncNow() {
@@ -672,9 +772,25 @@ async function syncNow() {
 
 function initCloud() {
   $('signInBtn').disabled = false;
+  $('guestBtn').disabled = false;
+  $('guestBtn').addEventListener('click', () =>
+    cloud.signInGuest().catch(err => setStatus('syncStatus', 'Guest sign-in failed: ' + syncMessage(err), 'err')));
+  $('linkGoogleBtn').addEventListener('click', async () => {
+    try {
+      await cloud.linkGoogle();
+      cloudUser = cloud.user;
+      renderSyncUI();
+      syncNow();
+    } catch (err) {
+      setStatus('syncStatus', 'Linking failed: ' + syncMessage(err), 'err');
+    }
+  });
   $('signInBtn').addEventListener('click', () =>
     cloud.signIn().catch(err => setStatus('syncStatus', 'Sign-in failed: ' + syncMessage(err), 'err')));
-  $('signOutBtn').addEventListener('click', () => cloud.signOut());
+  $('signOutBtn').addEventListener('click', () => {
+    if (cloudUser?.isAnonymous && !confirm('Signing out of a guest account loses access to its cloud backup (data on this device stays). Continue?')) return;
+    cloud.signOut();
+  });
   $('syncNowBtn').addEventListener('click', syncNow);
   cloud.onAuthChange(user => {
     cloudUser = user;
