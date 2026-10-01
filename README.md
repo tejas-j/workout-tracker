@@ -6,35 +6,37 @@ history.
 
 ## Status
 
-**Local prototype.** Data currently lives in browser localStorage only — no
-sync across devices yet. Hosting/sync (GitHub-repo-as-datastore or Firebase)
-is the next step.
+**Local-first PWA, no backend.** History and settings live in browser
+localStorage. Move data between devices with **Settings → Backup & restore**
+(download a JSON file, import it elsewhere; imports merge by workout id).
 
 ## Running it
 
-Just open `index.html` in a browser. No build step, no dependencies.
+Open `index.html` directly, or serve the folder (`python3 -m http.server`)
+to get the installable PWA / offline support (service workers need http(s)).
+To use it on an iPhone, host it over HTTPS and use Share → Add to Home Screen.
 
-## Using the suggestion feature
+## How suggestions work
 
-1. Go to the **Settings** tab.
-2. Paste an Anthropic API key (get one at https://console.anthropic.com).
-3. The key is stored only in your browser's localStorage — it is never
-   written into this codebase and never committed to git.
-4. Go to **Today**, set minutes available, click "Suggest a workout."
+Pick minutes, a focus (full body, upper, lower, chest, back, shoulders, arms,
+legs, core) and hit **Suggest a workout**.
 
-**Important:** this prototype calls the Anthropic API directly from the
-browser (using the `anthropic-dangerous-direct-browser-access` header).
-That's fine for local use on your own machine, but it is **not safe to
-deploy publicly as-is** — anyone opening dev tools on a hosted version
-could read the key out of outgoing requests. Before hosting this
-publicly, the API call needs to move behind a small server-side
-function (e.g. a Cloudflare Worker or Firebase Cloud Function) that
-holds the key instead.
+- **No API key:** the app builds a workout from the curated library in
+  `exercises.js`, filtered by your equipment, fitted to your time, and
+  preferring exercises you haven't done recently. Weights default to your last
+  logged weight for that exercise. No history-based recommendations.
+- **With your own Anthropic API key** (Settings): Claude Haiku suggests a
+  workout from your time, focus, equipment (including custom items) and recent
+  history. If the call fails it falls back to the library.
 
-## Equipment assumption
+The key is stored only in your browser and sent only to Anthropic, which is why
+each user supplies their own. Don't paste a key on a shared device.
 
-Suggestions currently assume: dumbbells (multiple/adjustable), a bench,
-and bodyweight exercises only.
+## Equipment
+
+Settings → Equipment: toggle presets (dumbbells, bench, pull-up bar, bands,
+kettlebell, barbell) or add custom items. Presets filter the library; custom
+items are passed to the AI only. Bodyweight is always available.
 
 ## Data model
 
@@ -44,6 +46,7 @@ Workouts are stored as:
   "id": 1234567890,
   "date": "2026-07-15T00:00:00.000Z",
   "duration": 30,
+  "region": "upper",
   "exercises": [
     {"name": "Dumbbell bench press", "sets": 3, "reps": 10, "weight": 35}
   ]
@@ -52,9 +55,7 @@ Workouts are stored as:
 
 ## Roadmap
 
-- [ ] Move data storage off localStorage (private GitHub repo via Contents
-      API, or Firebase) for cross-device sync
-- [ ] Move Anthropic API key server-side before any public hosting
-- [ ] Decide on final hosting (Firebase Hosting / Cloudflare Pages /
-      Netlify / Vercel)
-- [ ] Login gate so the hosted app isn't publicly accessible
+- [x] Region of focus, editable equipment, library fallback, backup/restore, PWA
+- [ ] Cross-device sync (Firebase Auth + Firestore, or similar) with login
+- [ ] Host on tejasrj.io (currently planned as a subdomain)
+- [ ] Optional server-side proxy for the Anthropic key if sharing with others

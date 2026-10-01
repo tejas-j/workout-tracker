@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Training Log</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#4A5A6A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Training">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -115,6 +120,17 @@
     display:inline-block;width:14px;height:14px;border:2px solid var(--line);
     border-top-color:var(--iron);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;
   }
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid var(--line);
+    border-radius:999px;background:#fff;font-size:0.84rem;cursor:pointer;user-select:none;
+  }
+  .chip.on{background:var(--iron);color:#fff;border-color:var(--iron);}
+  .chip .x{opacity:.7;font-size:1rem;line-height:1;}
+  .inline-row{display:flex;gap:8px;}
+  .inline-row input{margin-bottom:0;}
+  .src-tag{font-size:0.72rem;color:var(--ink-soft);margin:0 0 8px;}
+  .history-head .del-w{background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:0.8rem;margin-left:8px;}
   @keyframes spin{to{transform:rotate(360deg);}}
   @media (prefers-reduced-motion:reduce){.spinner{animation:none;}}
 </style>
@@ -138,6 +154,8 @@
       <h2>Get a suggestion</h2>
       <label for="timeAvail">Minutes available today</label>
       <input type="number" id="timeAvail" min="5" step="5" value="30">
+      <label for="regionSel">Focus</label>
+      <select id="regionSel"></select>
       <div class="btn-row">
         <button class="btn btn-accent" id="suggestBtn">Suggest a workout</button>
       </div>
@@ -172,31 +190,77 @@
   <!-- SETTINGS -->
   <section id="tab-settings">
     <div class="card">
-      <h2>Anthropic API key</h2>
+      <h2>Anthropic API key (optional)</h2>
       <label for="apiKey">Key (used only in this browser)</label>
       <input type="password" id="apiKey" placeholder="sk-ant-...">
       <button class="btn btn-primary" id="saveKeyBtn">Save key</button>
       <p class="settings-note">
-        Stored in this browser's local storage only — never sent anywhere except directly to Anthropic's API.
-        This direct-from-browser approach is fine for local testing on your own machine, but should not be used
-        once this app is hosted publicly, since anyone viewing the page source could see network calls.
-        When we host this for real, this key moves to a server-side function.
+        Optional. With a key, suggestions come from Claude Haiku using your equipment, focus and recent history.
+        Without one, the app builds a workout from its built-in library. The key stays in this browser's local
+        storage and is sent only to Anthropic. Use your own key, and don't paste one on a shared device.
       </p>
     </div>
     <div class="card">
-      <h2>Equipment on file</h2>
-      <p class="settings-note">Suggestions are generated assuming: dumbbells (adjustable/multiple), a bench, and bodyweight exercises. This is fixed for now — let me know if it should be editable.</p>
+      <h2>Equipment</h2>
+      <div class="chips" id="equipChips"></div>
+      <label for="customEquip">Add other equipment (e.g. "Adjustable dumbbells 5-50 lb")</label>
+      <div class="inline-row">
+        <input type="text" id="customEquip" placeholder="Equipment name">
+        <button class="btn btn-ghost" id="addEquipBtn">Add</button>
+      </div>
+      <p class="settings-note">
+        Bodyweight is always available. The built-in library uses the preset items above;
+        custom items are only passed to the AI when you have a key saved.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Backup &amp; restore</h2>
+      <p class="settings-note" style="margin-top:0;">
+        Your history lives only in this browser. Download a backup file to move it to another device
+        or keep a copy, and import it elsewhere. Importing merges with what's already here.
+      </p>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="exportBtn">Download backup</button>
+        <button class="btn btn-ghost" id="importBtn">Import backup</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+      <div id="backupStatus" class="status"></div>
     </div>
   </section>
 </div>
 
+<script src="exercises.js"></script>
 <script>
 const STORAGE_KEY = 'workoutLog_v1';
 const API_KEY_STORAGE = 'anthropicApiKey_v1';
+const EQUIPMENT_STORAGE = 'equipment_v1';
+const REGION_STORAGE = 'region_v1';
+const MODEL = 'claude-haiku-4-5-20251001';
+
+// ---------- Helpers ----------
+const $ = id => document.getElementById(id);
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+function setStatus(elId, text, kind) {
+  const el = $(elId);
+  el.textContent = text;
+  el.className = 'status ' + (kind || '');
+  if (kind === 'ok') setTimeout(() => { el.textContent = ''; }, 2500);
+}
+function fmtReps(e) { return e.unit === 'sec' ? `${e.reps}s` : `${e.reps}`; }
 
 // ---------- State ----------
-let workouts = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let workouts = load(STORAGE_KEY, []);
+let equipment = load(EQUIPMENT_STORAGE, ['Dumbbells', 'Bench']);
 let exerciseRowCount = 0;
+let currentRegion = 'full';
 
 // ---------- Tabs ----------
 document.querySelectorAll('nav.tabs button').forEach(btn => {
@@ -204,12 +268,51 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    $('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'history') renderHistory();
   });
 });
+$('todayTag').textContent = new Date().toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'});
 
-document.getElementById('todayTag').textContent = new Date().toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'});
+// ---------- Region picker ----------
+$('regionSel').innerHTML = Object.entries(REGIONS).map(([k, r]) => `<option value="${k}">${esc(r.label)}</option>`).join('');
+try { const r = localStorage.getItem(REGION_STORAGE); if (REGIONS[r]) currentRegion = r; } catch {}
+$('regionSel').value = currentRegion;
+$('regionSel').addEventListener('change', e => {
+  currentRegion = e.target.value;
+  try { localStorage.setItem(REGION_STORAGE, currentRegion); } catch {}
+});
+
+// ---------- Equipment ----------
+function renderEquipment() {
+  const custom = equipment.filter(e => !EQUIPMENT_PRESETS.includes(e));
+  $('equipChips').innerHTML =
+    EQUIPMENT_PRESETS.map(p => `<span class="chip ${equipment.includes(p) ? 'on' : ''}" data-preset="${esc(p)}">${esc(p)}</span>`).join('') +
+    custom.map(c => `<span class="chip on" data-custom="${esc(c)}">${esc(c)} <span class="x">×</span></span>`).join('');
+}
+$('equipChips').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  if (chip.dataset.preset) {
+    const p = chip.dataset.preset;
+    equipment = equipment.includes(p) ? equipment.filter(x => x !== p) : [...equipment, p];
+  } else if (chip.dataset.custom) {
+    equipment = equipment.filter(x => x !== chip.dataset.custom);
+  }
+  save(EQUIPMENT_STORAGE, equipment);
+  renderEquipment();
+});
+function addCustomEquipment() {
+  const v = $('customEquip').value.trim();
+  if (!v) return;
+  if (!equipment.some(x => x.toLowerCase() === v.toLowerCase())) equipment.push(v);
+  $('customEquip').value = '';
+  save(EQUIPMENT_STORAGE, equipment);
+  renderEquipment();
+}
+$('addEquipBtn').addEventListener('click', addCustomEquipment);
+$('customEquip').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomEquipment(); });
+renderEquipment();
 
 // ---------- Exercise row builder ----------
 function addExerciseRow(prefill) {
@@ -218,190 +321,261 @@ function addExerciseRow(prefill) {
   const row = document.createElement('div');
   row.className = 'exercise-row';
   row.id = id;
+  if (prefill?.unit) row.dataset.unit = prefill.unit;
   row.innerHTML = `
     <div>
       <div class="small-label">Exercise</div>
-      <input type="text" class="ex-name" value="${prefill?.name || ''}" placeholder="e.g. Dumbbell bench press">
+      <input type="text" class="ex-name" value="${esc(prefill?.name)}" placeholder="e.g. Dumbbell bench press">
     </div>
     <div style="width:64px;">
       <div class="small-label">Sets</div>
-      <input type="number" class="ex-sets" min="1" value="${prefill?.sets || 3}">
+      <input type="number" class="ex-sets" min="1" value="${esc(prefill?.sets || 3)}">
     </div>
     <div style="width:64px;">
-      <div class="small-label">Reps</div>
-      <input type="number" class="ex-reps" min="1" value="${prefill?.reps || 10}">
+      <div class="small-label">${prefill?.unit === 'sec' ? 'Secs' : 'Reps'}</div>
+      <input type="number" class="ex-reps" min="1" value="${esc(prefill?.reps || 10)}">
     </div>
     <div style="width:74px;">
       <div class="small-label">Weight (lb)</div>
-      <input type="number" class="ex-weight" min="0" value="${prefill?.weight || 20}">
+      <input type="number" class="ex-weight" min="0" value="${esc(prefill?.weight ?? 20)}">
     </div>
-    <button class="del" title="Remove" onclick="document.getElementById('${id}').remove()">×</button>
+    <button class="del" title="Remove">×</button>
   `;
-  document.getElementById('exerciseRows').appendChild(row);
+  row.querySelector('.del').addEventListener('click', () => row.remove());
+  $('exerciseRows').appendChild(row);
 }
-document.getElementById('addExerciseBtn').addEventListener('click', () => addExerciseRow());
-addExerciseRow(); // start with one row
+function resetExerciseRows(list) {
+  $('exerciseRows').innerHTML = '';
+  exerciseRowCount = 0;
+  if (list && list.length) list.forEach(addExerciseRow); else addExerciseRow();
+}
+$('addExerciseBtn').addEventListener('click', () => addExerciseRow());
+addExerciseRow();
 
 // ---------- Save workout ----------
-document.getElementById('saveLogBtn').addEventListener('click', () => {
-  const duration = parseInt(document.getElementById('logDuration').value) || 0;
-  const rows = document.querySelectorAll('#exerciseRows .exercise-row');
+$('saveLogBtn').addEventListener('click', () => {
+  const duration = parseInt($('logDuration').value) || 0;
   const exercises = [];
-  rows.forEach(r => {
+  document.querySelectorAll('#exerciseRows .exercise-row').forEach(r => {
     const name = r.querySelector('.ex-name').value.trim();
     if (!name) return;
-    exercises.push({
+    const ex = {
       name,
       sets: parseInt(r.querySelector('.ex-sets').value) || 0,
       reps: parseInt(r.querySelector('.ex-reps').value) || 0,
       weight: parseFloat(r.querySelector('.ex-weight').value) || 0
-    });
+    };
+    if (r.dataset.unit) ex.unit = r.dataset.unit;
+    exercises.push(ex);
   });
   if (exercises.length === 0) {
     setStatus('saveStatus', 'Add at least one exercise before saving.', 'err');
     return;
   }
-  workouts.unshift({
-    id: Date.now(),
-    date: new Date().toISOString(),
-    duration,
-    exercises
-  });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(workouts));
+  workouts.unshift({ id: Date.now(), date: new Date().toISOString(), duration, region: currentRegion, exercises });
+  save(STORAGE_KEY, workouts);
   setStatus('saveStatus', 'Saved.', 'ok');
-  document.getElementById('exerciseRows').innerHTML = '';
-  exerciseRowCount = 0;
-  addExerciseRow();
+  resetExerciseRows();
 });
 
-function setStatus(elId, text, kind) {
-  const el = document.getElementById(elId);
-  el.textContent = text;
-  el.className = 'status ' + (kind || '');
-  if (kind === 'ok') setTimeout(() => { el.textContent = ''; }, 2500);
+// ---------- History ----------
+function totalVolume(w) {
+  return w.exercises.reduce((sum, e) => sum + (e.sets * e.reps * (e.weight || 1)), 0);
 }
-
-// ---------- History rendering ----------
 function renderHistory() {
-  const list = document.getElementById('historyList');
+  const list = $('historyList');
   if (workouts.length === 0) {
     list.innerHTML = '<div class="empty">No workouts logged yet. Log one from the Today tab.</div>';
     return;
   }
-  const maxVolume = Math.max(...workouts.map(w => totalVolume(w)), 1);
+  const maxVolume = Math.max(...workouts.map(totalVolume), 1);
   list.innerHTML = workouts.map(w => {
     const vol = totalVolume(w);
     const plateCount = Math.max(1, Math.round((vol / maxVolume) * 12));
     const plates = Array.from({length: 12}, (_, i) =>
       `<div class="plate" style="height:${i < plateCount ? (30 + i*4) : 4}%; opacity:${i < plateCount ? 1 : 0.15}"></div>`
     ).join('');
-    const exList = w.exercises.map(e => `${e.name} — ${e.sets}×${e.reps}${e.weight ? ' @ ' + e.weight + 'lb' : ''}`).join('<br>');
+    const exList = w.exercises.map(e =>
+      `${esc(e.name)} — ${esc(e.sets)}×${esc(fmtReps(e))}${e.weight ? ' @ ' + esc(e.weight) + 'lb' : ''}`).join('<br>');
+    const region = REGIONS[w.region] ? ` · ${esc(REGIONS[w.region].label)}` : '';
     return `
       <div class="history-item">
         <div class="history-head">
           <span class="history-date">${new Date(w.date).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'})}</span>
-          <span class="history-meta">${w.duration} min · ${Math.round(vol).toLocaleString()} lb moved</span>
+          <span class="history-meta">${esc(w.duration)} min${region} · ${Math.round(vol).toLocaleString()} lb moved
+            <button class="del-w" data-id="${esc(w.id)}" title="Delete workout">Delete</button></span>
         </div>
         <div class="plate-bar">${plates}</div>
         <div class="ex-list">${exList}</div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
-function totalVolume(w) {
-  return w.exercises.reduce((sum, e) => sum + (e.sets * e.reps * (e.weight || 1)), 0);
-}
+$('historyList').addEventListener('click', e => {
+  const btn = e.target.closest('.del-w');
+  if (!btn || !confirm('Delete this workout from history?')) return;
+  workouts = workouts.filter(w => String(w.id) !== btn.dataset.id);
+  save(STORAGE_KEY, workouts);
+  renderHistory();
+});
+
+// ---------- Backup / restore ----------
+$('exportBtn').addEventListener('click', () => {
+  const data = { app: 'training-log', version: 1, exportedAt: new Date().toISOString(), workouts, equipment };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `training-log-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setStatus('backupStatus', `Backed up ${workouts.length} workouts.`, 'ok');
+});
+$('importBtn').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.app !== 'training-log' || !Array.isArray(data.workouts)) throw new Error('Not a Training Log backup file.');
+    const valid = data.workouts.filter(w => w && w.id != null && w.date && Array.isArray(w.exercises));
+    const have = new Set(workouts.map(w => String(w.id)));
+    const fresh = valid.filter(w => !have.has(String(w.id)));
+    if (!confirm(`Import ${fresh.length} new workouts (${valid.length - fresh.length} already here)?`)) return;
+    workouts = [...workouts, ...fresh].sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (Array.isArray(data.equipment)) {
+      for (const item of data.equipment.filter(x => typeof x === 'string')) {
+        if (!equipment.some(x => x.toLowerCase() === item.toLowerCase())) equipment.push(item);
+      }
+      save(EQUIPMENT_STORAGE, equipment);
+      renderEquipment();
+    }
+    save(STORAGE_KEY, workouts);
+    setStatus('backupStatus', `Imported ${fresh.length} workouts.`, 'ok');
+  } catch (err) {
+    setStatus('backupStatus', 'Import failed: ' + err.message, 'err');
+  }
+});
 
 // ---------- Settings: API key ----------
-document.getElementById('apiKey').value = localStorage.getItem(API_KEY_STORAGE) || '';
-document.getElementById('saveKeyBtn').addEventListener('click', () => {
-  localStorage.setItem(API_KEY_STORAGE, document.getElementById('apiKey').value.trim());
-  setStatus2('saveKeyBtn', 'Saved');
-});
-function setStatus2(btnId, msg) {
-  const btn = document.getElementById(btnId);
+$('apiKey').value = localStorage.getItem(API_KEY_STORAGE) || '';
+$('saveKeyBtn').addEventListener('click', () => {
+  localStorage.setItem(API_KEY_STORAGE, $('apiKey').value.trim());
+  const btn = $('saveKeyBtn');
   const original = btn.textContent;
-  btn.textContent = msg;
+  btn.textContent = 'Saved';
   setTimeout(() => btn.textContent = original, 1500);
+});
+
+// ---------- Suggestions ----------
+function lastDoneMap() {
+  const map = {};
+  for (const w of workouts) {
+    const t = new Date(w.date).getTime();
+    for (const e of w.exercises) if (!(map[e.name] > t)) map[e.name] = t;
+  }
+  return map;
+}
+function lastWeights() {
+  const map = {};
+  for (const w of workouts) for (const e of w.exercises) if (!(e.name in map) && e.weight) map[e.name] = e.weight;
+  return map;
 }
 
-// ---------- Suggestion ----------
-document.getElementById('suggestBtn').addEventListener('click', async () => {
-  const key = localStorage.getItem(API_KEY_STORAGE);
-  const statusEl = document.getElementById('suggestStatus');
-  const outputEl = document.getElementById('suggestionOutput');
-  outputEl.innerHTML = '';
-  if (!key) {
-    statusEl.textContent = 'Add your Anthropic API key in Settings first.';
-    statusEl.className = 'status err';
-    return;
-  }
-  const minutes = parseInt(document.getElementById('timeAvail').value) || 30;
-  statusEl.innerHTML = '<span class="spinner"></span> Thinking...';
-  statusEl.className = 'status';
-
+async function aiSuggestion(key, minutes) {
+  const regionLabel = REGIONS[currentRegion].label;
   const recent = workouts.slice(0, 5).map(w => ({
-    date: w.date.slice(0,10),
-    exercises: w.exercises.map(e => `${e.name} ${e.sets}x${e.reps}@${e.weight}lb`)
+    date: String(w.date).slice(0, 10),
+    exercises: w.exercises.map(e => `${e.name} ${e.sets}x${e.reps}${e.unit === 'sec' ? 's' : ''}@${e.weight}lb`)
   }));
-
-  const systemPrompt = `You suggest a single home strength workout. Equipment available: dumbbells (multiple pairs/adjustable), a bench, and bodyweight exercises only — no barbells, machines, or gym equipment. Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly this shape:
-{"focus": "short label like 'Upper body push'", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number}]}
-Pick a number of exercises appropriate for the given minutes (roughly 5-8 minutes per exercise including rest). Vary the focus based on recent history so the same muscle groups aren't hit two days in a row when possible.`;
-
-  const userPrompt = `Minutes available today: ${minutes}.
+  const systemPrompt = `You suggest a single home strength workout. Use ONLY the equipment listed by the user (plus bodyweight). Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly this shape:
+{"focus": "short label like 'Upper body push'", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec"}]}
+Use unit "sec" (reps = seconds held) only for holds like planks. Weight is in lb, 0 for bodyweight. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. Vary exercises and avoid repeating the same movements as recent history when possible.`;
+  const userPrompt = `Minutes available: ${minutes}.
+Focus: ${regionLabel}.
+Equipment: ${equipment.length ? equipment.join(', ') : 'none'}.
 Recent workout history (most recent first): ${recent.length ? JSON.stringify(recent) : 'none logged yet'}.
 Suggest today's workout.`;
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 600,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }]
-      })
-    });
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`API error ${response.status}: ${errText.slice(0,200)}`);
-    }
-    const data = await response.json();
-    const text = data.content.map(b => b.text || '').join('').trim();
-    const cleaned = text.replace(/^```json\s*|```$/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({ model: MODEL, max_tokens: 800, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+  });
+  if (!response.ok) throw new Error(`API error ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  const data = await response.json();
+  const text = data.content.map(b => b.text || '').join('');
+  const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+  if (!Array.isArray(parsed.exercises) || !parsed.exercises.length) throw new Error('No exercises in response.');
+  return {
+    focus: String(parsed.focus || regionLabel),
+    exercises: parsed.exercises.map(e => ({
+      name: String(e.name || 'Exercise'),
+      sets: Math.max(1, Math.round(Number(e.sets)) || 3),
+      reps: Math.max(1, Math.round(Number(e.reps)) || 10),
+      weight: Math.max(0, Number(e.weight) || 0),
+      ...(e.unit === 'sec' ? { unit: 'sec' } : {})
+    }))
+  };
+}
 
-    statusEl.textContent = '';
-    outputEl.innerHTML = `
-      <div class="suggestion-box">
-        <h3>${parsed.focus || 'Suggested workout'}</h3>
-        ${parsed.exercises.map(e => `
-          <div class="suggestion-ex"><b>${e.name}</b> — ${e.sets} sets × ${e.reps} reps${e.weight ? ' @ ' + e.weight + ' lb' : ''}</div>
-        `).join('')}
-        <div class="btn-row" style="margin-top:12px;">
-          <button class="btn btn-primary" id="useSuggestionBtn">Use this — fill log form</button>
-        </div>
-      </div>
-    `;
-    document.getElementById('useSuggestionBtn').addEventListener('click', () => {
-      document.getElementById('exerciseRows').innerHTML = '';
-      exerciseRowCount = 0;
-      parsed.exercises.forEach(e => addExerciseRow(e));
-      document.getElementById('logDuration').value = minutes;
-      window.scrollTo({top: document.getElementById('exerciseRows').offsetTop - 20, behavior:'smooth'});
-    });
-  } catch (err) {
-    statusEl.textContent = 'Error: ' + err.message;
-    statusEl.className = 'status err';
+function libraryWorkout(minutes) {
+  const w = buildLibraryWorkout({ minutes, region: currentRegion, equipment, lastDone: lastDoneMap() });
+  const weights = lastWeights();
+  w.exercises.forEach(e => { if (weights[e.name]) e.weight = weights[e.name]; });
+  return w;
+}
+
+$('suggestBtn').addEventListener('click', async () => {
+  const key = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+  const minutes = parseInt($('timeAvail').value) || 30;
+  $('suggestionOutput').innerHTML = '';
+  let suggestion, source = 'From the built-in library', note = '';
+
+  if (key) {
+    setStatus('suggestStatus', '', '');
+    $('suggestStatus').innerHTML = '<span class="spinner"></span> Thinking...';
+    try {
+      suggestion = await aiSuggestion(key, minutes);
+      source = 'AI suggestion';
+    } catch (err) {
+      note = 'AI suggestion failed (' + err.message + '). Showing a library workout instead.';
+    }
   }
+  if (!suggestion) suggestion = libraryWorkout(minutes);
+  setStatus('suggestStatus', note, note ? 'err' : '');
+
+  if (!suggestion.exercises.length) {
+    $('suggestionOutput').innerHTML = '<div class="empty">No exercises fit that time and equipment. Try more minutes or add equipment in Settings.</div>';
+    return;
+  }
+  $('suggestionOutput').innerHTML = `
+    <div class="suggestion-box">
+      <h3>${esc(suggestion.focus)}</h3>
+      <p class="src-tag">${esc(source)}${suggestion.estimatedMinutes ? ` · about ${suggestion.estimatedMinutes} min` : ''}</p>
+      ${suggestion.exercises.map(e => `
+        <div class="suggestion-ex"><b>${esc(e.name)}</b> — ${esc(e.sets)} sets × ${esc(e.unit === 'sec' ? e.reps + ' sec' : e.reps + ' reps')}${e.weight ? ' @ ' + esc(e.weight) + ' lb' : ''}</div>`).join('')}
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="btn btn-primary" id="useSuggestionBtn">Use this — fill log form</button>
+      </div>
+    </div>`;
+  $('useSuggestionBtn').addEventListener('click', () => {
+    resetExerciseRows(suggestion.exercises);
+    $('logDuration').value = minutes;
+    window.scrollTo({top: $('exerciseRows').offsetTop - 20, behavior: 'smooth'});
+  });
 });
+
+// ---------- PWA ----------
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
