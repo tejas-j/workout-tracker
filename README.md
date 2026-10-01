@@ -6,9 +6,39 @@ history.
 
 ## Status
 
-**Local-first PWA, no backend.** History and settings live in browser
-localStorage. Move data between devices with **Settings → Backup & restore**
-(download a JSON file, import it elsewhere; imports merge by workout id).
+**Local-first PWA with optional Google sign-in sync.** History and settings
+always live in browser localStorage first. Signing in (Settings → Sync) mirrors
+them to Firestore under `users/{uid}/workouts/{id}` and
+`users/{uid}/settings/profile`, so other devices pick them up. Signed out, the
+app works fully offline and local-only. **Backup & restore** (JSON file) still
+works as a manual safety net; imports merge by workout id.
+
+Sync details: it runs on sign-in, on "Sync now", and when the app returns to the
+foreground. Workouts merge by id; a workout deleted on another device is dropped
+here rather than resurrected; equipment is last-edit-wins. The Anthropic key is
+never synced.
+
+### Firebase setup
+
+The Firebase web config in `firebase-sync.js` is public by design. Security
+comes from Firestore rules, which must restrict access to your account:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == uid
+                         && request.auth.uid == "YOUR_UID";
+    }
+  }
+}
+```
+
+Add every domain you serve from (e.g. `tejasrj.io`) under Authentication →
+Settings → Authorized domains. The SDK is loaded from Google's CDN (no build
+step).
 
 ## Running it
 
@@ -56,6 +86,6 @@ Workouts are stored as:
 ## Roadmap
 
 - [x] Region of focus, editable equipment, library fallback, backup/restore, PWA
-- [ ] Cross-device sync (Firebase Auth + Firestore, or similar) with login
+- [x] Cross-device sync (Firebase Auth + Firestore) with Google login
 - [ ] Host on tejasrj.io (currently planned as a subdomain)
 - [ ] Optional server-side proxy for the Anthropic key if sharing with others

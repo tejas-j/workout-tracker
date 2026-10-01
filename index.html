@@ -190,6 +190,24 @@
   <!-- SETTINGS -->
   <section id="tab-settings">
     <div class="card">
+      <h2>Sync</h2>
+      <div id="syncOff">
+        <p class="settings-note" style="margin-top:0;">
+          Sign in with Google to sync your history and equipment across devices.
+          Without signing in, everything stays in this browser.
+        </p>
+        <button class="btn btn-primary" id="signInBtn" disabled>Sign in with Google</button>
+      </div>
+      <div id="syncOn" style="display:none;">
+        <p class="settings-note" style="margin-top:0;">Signed in as <b id="syncEmail"></b>.</p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="syncNowBtn">Sync now</button>
+          <button class="btn btn-ghost" id="signOutBtn">Sign out</button>
+        </div>
+      </div>
+      <div id="syncStatus" class="status"></div>
+    </div>
+    <div class="card">
       <h2>Anthropic API key (optional)</h2>
       <label for="apiKey">Key (used only in this browser)</label>
       <input type="password" id="apiKey" placeholder="sk-ant-...">
@@ -230,11 +248,14 @@
 </div>
 
 <script src="exercises.js"></script>
+<script type="module" src="firebase-sync.js"></script>
 <script>
 const STORAGE_KEY = 'workoutLog_v1';
 const API_KEY_STORAGE = 'anthropicApiKey_v1';
 const EQUIPMENT_STORAGE = 'equipment_v1';
 const REGION_STORAGE = 'region_v1';
+const EQUIP_UPDATED_STORAGE = 'equipmentUpdated_v1';
+const SYNCED_STORAGE = 'syncedIds_v1';
 const MODEL = 'claude-haiku-4-5-20251001';
 
 // ---------- Helpers ----------
@@ -284,6 +305,11 @@ $('regionSel').addEventListener('change', e => {
 });
 
 // ---------- Equipment ----------
+function persistEquipment() {
+  save(EQUIPMENT_STORAGE, equipment);
+  save(EQUIP_UPDATED_STORAGE, Date.now());
+  cloudCall(() => cloud.saveProfile({ equipment, updatedAt: load(EQUIP_UPDATED_STORAGE, 0) }));
+}
 function renderEquipment() {
   const custom = equipment.filter(e => !EQUIPMENT_PRESETS.includes(e));
   $('equipChips').innerHTML =
@@ -299,7 +325,7 @@ $('equipChips').addEventListener('click', e => {
   } else if (chip.dataset.custom) {
     equipment = equipment.filter(x => x !== chip.dataset.custom);
   }
-  save(EQUIPMENT_STORAGE, equipment);
+  persistEquipment();
   renderEquipment();
 });
 function addCustomEquipment() {
@@ -307,7 +333,7 @@ function addCustomEquipment() {
   if (!v) return;
   if (!equipment.some(x => x.toLowerCase() === v.toLowerCase())) equipment.push(v);
   $('customEquip').value = '';
-  save(EQUIPMENT_STORAGE, equipment);
+  persistEquipment();
   renderEquipment();
 }
 $('addEquipBtn').addEventListener('click', addCustomEquipment);
@@ -372,8 +398,10 @@ $('saveLogBtn').addEventListener('click', () => {
     setStatus('saveStatus', 'Add at least one exercise before saving.', 'err');
     return;
   }
-  workouts.unshift({ id: Date.now(), date: new Date().toISOString(), duration, region: currentRegion, exercises });
+  const entry = { id: Date.now(), date: new Date().toISOString(), duration, region: currentRegion, exercises };
+  workouts.unshift(entry);
   save(STORAGE_KEY, workouts);
+  cloudCall(() => cloud.saveWorkout(entry));
   setStatus('saveStatus', 'Saved.', 'ok');
   resetExerciseRows();
 });
@@ -415,6 +443,7 @@ $('historyList').addEventListener('click', e => {
   if (!btn || !confirm('Delete this workout from history?')) return;
   workouts = workouts.filter(w => String(w.id) !== btn.dataset.id);
   save(STORAGE_KEY, workouts);
+  cloudCall(() => cloud.removeWorkout(btn.dataset.id));
   renderHistory();
 });
 
@@ -448,10 +477,11 @@ $('importFile').addEventListener('change', async e => {
       for (const item of data.equipment.filter(x => typeof x === 'string')) {
         if (!equipment.some(x => x.toLowerCase() === item.toLowerCase())) equipment.push(item);
       }
-      save(EQUIPMENT_STORAGE, equipment);
+      persistEquipment();
       renderEquipment();
     }
     save(STORAGE_KEY, workouts);
+    cloudCall(() => cloud.saveWorkouts(fresh));
     setStatus('backupStatus', `Imported ${fresh.length} workouts.`, 'ok');
   } catch (err) {
     setStatus('backupStatus', 'Import failed: ' + err.message, 'err');
@@ -571,6 +601,97 @@ $('suggestBtn').addEventListener('click', async () => {
     window.scrollTo({top: $('exerciseRows').offsetTop - 20, behavior: 'smooth'});
   });
 });
+
+// ---------- Cloud sync (Firebase) ----------
+let cloudUser = null;
+let syncing = false;
+let lastSync = 0;
+
+// Fire-and-forget cloud write; local data is always saved first.
+function cloudCall(fn) {
+  if (!cloudUser || !window.cloud) return;
+  Promise.resolve().then(fn).catch(err => setStatus('syncStatus', 'Sync error: ' + syncMessage(err), 'err'));
+}
+function syncMessage(err) {
+  return err?.code === 'permission-denied'
+    ? 'permission denied. Check the Firestore rules allow your account.'
+    : (err?.message || String(err));
+}
+function renderSyncUI() {
+  $('syncOff').style.display = cloudUser ? 'none' : 'block';
+  $('syncOn').style.display = cloudUser ? 'block' : 'none';
+  $('syncEmail').textContent = cloudUser?.email || '';
+}
+
+async function syncNow() {
+  if (!cloudUser || syncing) return;
+  syncing = true;
+  $('syncStatus').className = 'status';
+  $('syncStatus').innerHTML = '<span class="spinner"></span> Syncing...';
+  try {
+    const cloudList = (await cloud.fetchWorkouts()).filter(w => w && w.id != null && w.date && Array.isArray(w.exercises));
+    const cloudIds = new Set(cloudList.map(w => String(w.id)));
+    const meta = load(SYNCED_STORAGE, {});
+    // ids this account has synced before: if one is gone from the cloud it was deleted on another device
+    const prev = new Set(meta.uid === cloudUser.uid ? meta.ids : []);
+
+    const keep = [], toPush = [];
+    for (const w of workouts) {
+      const id = String(w.id);
+      if (cloudIds.has(id)) keep.push(w);
+      else if (!prev.has(id)) { keep.push(w); toPush.push(w); }
+    }
+    const keepIds = new Set(keep.map(w => String(w.id)));
+    const added = cloudList.filter(w => !keepIds.has(String(w.id)));
+    workouts = [...keep, ...added].sort((a, b) => new Date(b.date) - new Date(a.date));
+    if (toPush.length) await cloud.saveWorkouts(toPush);
+
+    // equipment: newest edit wins
+    const profile = await cloud.fetchProfile();
+    const localUpdated = load(EQUIP_UPDATED_STORAGE, 0);
+    if (profile && Array.isArray(profile.equipment) && (profile.updatedAt || 0) > localUpdated) {
+      equipment = profile.equipment.filter(x => typeof x === 'string');
+      save(EQUIPMENT_STORAGE, equipment);
+      save(EQUIP_UPDATED_STORAGE, profile.updatedAt);
+    } else if (!profile || localUpdated > (profile.updatedAt || 0)) {
+      await cloud.saveProfile({ equipment, updatedAt: localUpdated });
+    }
+
+    save(STORAGE_KEY, workouts);
+    save(SYNCED_STORAGE, { uid: cloudUser.uid, ids: workouts.map(w => String(w.id)) });
+    renderEquipment();
+    renderHistory();
+    lastSync = Date.now();
+    setStatus('syncStatus', `Synced ${workouts.length} workouts.`, 'ok');
+  } catch (err) {
+    setStatus('syncStatus', 'Sync failed: ' + syncMessage(err), 'err');
+  } finally {
+    syncing = false;
+  }
+}
+
+function initCloud() {
+  $('signInBtn').disabled = false;
+  $('signInBtn').addEventListener('click', () =>
+    cloud.signIn().catch(err => setStatus('syncStatus', 'Sign-in failed: ' + syncMessage(err), 'err')));
+  $('signOutBtn').addEventListener('click', () => cloud.signOut());
+  $('syncNowBtn').addEventListener('click', syncNow);
+  cloud.onAuthChange(user => {
+    cloudUser = user;
+    renderSyncUI();
+    if (user) syncNow();
+  });
+  // pick up changes from other devices when the app comes back to the foreground
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && cloudUser && Date.now() - lastSync > 30000) syncNow();
+  });
+}
+if (window.cloud) initCloud();
+window.addEventListener('cloud-ready', initCloud, { once: true });
+window.addEventListener('cloud-failed', () => {
+  $('signInBtn').textContent = 'Sync unavailable (offline?)';
+}, { once: true });
+renderSyncUI();
 
 // ---------- PWA ----------
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
