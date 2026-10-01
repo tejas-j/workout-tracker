@@ -69,6 +69,39 @@ Then hit **Suggest a workout**.
 The key is stored only in your browser and sent only to Anthropic, which is why
 each user supplies their own. Don't paste a key on a shared device.
 
+## Shared AI access (proxy)
+
+`worker/` is a Cloudflare Worker that holds an Anthropic API key so the browser
+never sees it. The app uses it when `AI_PROXY_URL` (top of the script in
+`index.html`) is set and the user is signed in with Google. The Worker:
+
+- verifies the Firebase ID token (signature, issuer, audience, expiry),
+- rejects guest (anonymous) accounts and any email not in `ALLOWED_EMAILS`,
+- only allows calls from `ALLOWED_ORIGINS`,
+- picks the model and output cap itself, caps prompt size, and
+- optionally enforces a per-user daily limit (`DAILY_LIMIT`, needs the `USAGE` KV namespace).
+
+Order of preference in the app: your own key (Settings) → shared proxy → built-in library.
+Anyone not on the allowlist silently gets library workouts.
+
+### Deploying the Worker
+
+```
+cd worker
+npm install
+npx wrangler login                      # opens Cloudflare in the browser
+npx wrangler kv namespace create USAGE  # optional: paste the id into wrangler.toml
+npx wrangler secret put ANTHROPIC_API_KEY
+# edit ALLOWED_EMAILS in wrangler.toml
+npx wrangler deploy                     # prints the https://workout-ai.<you>.workers.dev URL
+```
+
+Then set `AI_PROXY_URL` in `index.html` to that URL. Run `npm test` in `worker/`
+for the auth/validation tests (no API calls).
+
+Also set a monthly spend limit on the key's workspace in the Anthropic Console,
+so a bug or abuse can't cost more than you choose.
+
 ## Logging activities
 
 The log card has two modes: **Strength** (exercises with sets/reps/weight) and
@@ -110,4 +143,4 @@ cardio blocks.
 - [x] Region of focus, editable equipment, library fallback, backup/restore, PWA
 - [x] Cross-device sync (Firebase Auth + Firestore) with Google login
 - [ ] Host on tejasrj.io (currently planned as a subdomain)
-- [ ] Optional server-side proxy for the Anthropic key if sharing with others
+- [x] Server-side proxy for a shared Anthropic key (allowlisted Google accounts)
