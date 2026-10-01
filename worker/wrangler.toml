@@ -1,0 +1,22 @@
+name = "workout-ai"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FIREBASE_PROJECT_ID = "workout-tracker-67216"
+# Sites allowed to call this proxy (comma-separated, no trailing slash).
+ALLOWED_ORIGINS = "https://train.tejasrj.io,http://localhost:8000"
+# Google accounts allowed to use shared AI suggestions (comma-separated).
+ALLOWED_EMAILS = "you@example.com,wife@example.com"
+# Suggestions per user per day (needs the USAGE KV namespace below to be enforced).
+DAILY_LIMIT = "25"
+
+# Optional but recommended: per-user daily rate limiting.
+# Create with `npx wrangler kv namespace create USAGE` and paste the id here.
+# [[kv_namespaces]]
+# binding = "USAGE"
+# id = "PASTE_ID_HERE"
+
+# The Anthropic key is a secret, never in this file:
+#   npx wrangler secret put ANTHROPIC_API_KEY

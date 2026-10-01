@@ -1,0 +1,17 @@
+{
+  "name": "workout-ai-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "wrangler": "^4.146.0"
+  }
+}
