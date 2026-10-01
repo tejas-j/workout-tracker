@@ -1,113 +1,140 @@
 # Training Log
 
-A local-first personal workout tracker: logs strength workouts and suggests
-a daily workout (via the Anthropic API) based on time available and recent
-history.
+A mobile-first workout planner and tracker. Tell it how much time you have and what
+you want to train, and it builds a workout that fits your equipment. Log strength
+sessions and everyday activities, and sync your history across devices.
 
-## Status
+**Live app: [train.tejasrj.io](https://train.tejasrj.io)** (works without signing in)
 
-**Local-first PWA with optional Google sign-in sync.** History and settings
-always live in browser localStorage first. Signing in (Settings → Sync) mirrors
-them to Firestore under `users/{uid}/workouts/{id}` and
-`users/{uid}/settings/profile`, so other devices pick them up. Signed out, the
-app works fully offline and local-only. **Backup & restore** (JSON file) still
-works as a manual safety net; imports merge by workout id.
+<p>
+  <img src="docs/screenshots/today.png" alt="Workout suggestion" width="260">
+  <img src="docs/screenshots/history.png" alt="Workout history" width="260">
+  <img src="docs/screenshots/activity.png" alt="Logging an activity" width="260">
+</p>
 
-**Guest mode** uses Firebase anonymous auth: it backs up the current device's
-data to the cloud without a Google account, but a guest account is tied to that
-browser, so it can't sync to other devices and is lost if site data is cleared.
-"Link Google account" upgrades the guest to Google while keeping its data.
+## Features
 
-Sync details: it runs on sign-in, on "Sync now", and when the app returns to the
-foreground. Workouts merge by id; a workout deleted on another device is dropped
-here rather than resurrected; equipment is last-edit-wins. The Anthropic key is
-never synced.
+- **Time-boxed workout suggestions.** Choose the minutes available and one of 14 focus
+  areas (full body, upper, lower, push, pull, chest, back, shoulders, arms, legs,
+  glutes, core, cardio, mobility). The app fills the time from a curated library of
+  ~170 exercises.
+- **Equipment-aware.** Toggle from 20 equipment presets or add your own; suggestions
+  only use what you have. Bodyweight is always available.
+- **History-aware.** Prefers exercises you haven't done recently and pre-fills your
+  last logged weight for each one.
+- **Strength and activity logging.** Log sets, reps and weight, or record activities
+  like walks, runs, hikes and pickleball with duration, effort and distance.
+- **Optional AI suggestions.** Add your own Anthropic API key to get suggestions from
+  Claude that also account for recent activity and fatigue. Falls back to the library
+  if the call fails.
+- **Local-first with cloud sync.** Works offline and signed out. Sign in with Google
+  to sync across devices, or continue as a guest and link Google later.
+- **Installable PWA.** Add to the home screen on iOS or Android; the app shell is
+  cached for offline use.
+- **Backup and restore.** Export and import all data as JSON.
 
-### Firebase setup
+## How it works
 
-The Firebase web config in `firebase-sync.js` is public by design. Security
-comes from Firestore rules, which must restrict access to your account:
+| Layer | Implementation |
+|---|---|
+| UI | Single-page vanilla HTML/CSS/JS, no build step or framework |
+| Suggestions | Greedy time-budget packer over a curated library (`exercises.js`), rotating across muscle groups and ranked by how recently each exercise was done |
+| Storage | `localStorage` is the source of truth on each device |
+| Sync | Firebase Authentication (Google and anonymous) + Cloud Firestore |
+| Offline | Service worker with stale-while-revalidate caching |
+| AI (optional) | Anthropic Messages API (Claude Haiku), called with the user's own key |
+| Hosting | GitHub Pages with a custom domain |
+
+**Sync model.** Every change is written locally first, then mirrored to
+`users/{uid}/workouts/{id}` and `users/{uid}/settings/profile`. A sync runs on sign-in,
+on demand, and when the app returns to the foreground. Workouts merge by id, deletions
+on one device propagate to the others instead of being restored, and equipment
+settings use last-write-wins.
+
+## Project structure
 
 ```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null
-                         && request.auth.uid == uid
-                         && request.auth.uid == "YOUR_UID";
-    }
-  }
-}
+index.html            App UI, state, logging, history, suggestions and sync logic
+exercises.js          Exercise library, focus areas, equipment and the workout builder
+firebase-sync.js      Firebase Auth + Firestore wrapper, loaded as an ES module
+sw.js                 Service worker for offline support
+manifest.webmanifest  PWA manifest
+firestore.rules       Firestore security rules
+icons/                App icons
+docs/screenshots/     README images
 ```
 
-Add every domain you serve from (e.g. `tejasrj.io`) under Authentication →
-Settings → Authorized domains. The SDK is loaded from Google's CDN (no build
-step).
+## Running locally
 
-## Running it
+No dependencies or build step. Serve the folder over HTTP (service workers and
+Google sign-in don't work from `file://`):
 
-Open `index.html` directly, or serve the folder (`python3 -m http.server`)
-to get the installable PWA / offline support (service workers need http(s)).
-To use it on an iPhone, host it over HTTPS and use Share → Add to Home Screen.
+```bash
+python3 -m http.server 8000
+# open http://localhost:8000
+```
 
-## How suggestions work
+## Deployment
 
-Pick minutes and a focus: full body, upper, lower, push, pull, chest, back,
-shoulders, arms, legs, glutes, core, cardio/conditioning, or mobility/stretching.
-Then hit **Suggest a workout**.
+The site is served by GitHub Pages from the `main` branch. The `CNAME` file and a
+DNS CNAME record point `train.tejasrj.io` at it.
 
-- **No API key:** the app builds a workout from the curated library in
-  `exercises.js` (~170 exercises), filtered by your equipment, fitted to your
-  time, and preferring exercises you haven't done recently. Weights default to
-  your last logged weight for that exercise.
-- **With your own Anthropic API key** (Settings): Claude Haiku suggests a
-  workout from your time, focus, equipment (including custom items) and recent
-  history, including logged sports/cardio activities. If the call fails it falls
-  back to the library.
+To deploy your own copy:
 
-The key is stored only in your browser and sent only to Anthropic, which is why
-each user supplies their own. Don't paste a key on a shared device.
+1. Create a Firebase project, enable **Google** and **Anonymous** sign-in, and create a
+   Firestore database.
+2. Publish the rules in `firestore.rules`.
+3. Replace the config object in `firebase-sync.js` with your project's web config.
+4. Add your domain under Authentication → Settings → Authorized domains.
+5. Enable GitHub Pages (or any static host) for the repository.
 
-## Logging activities
+## Security and privacy
 
-The log card has two modes: **Strength** (exercises with sets/reps/weight) and
-**Activity / sport** for things like an outdoor walk, run, hike or pickleball:
-activity name (pick from the list or type your own), duration, effort, optional
-distance and notes.
-
-## Equipment
-
-Settings → Equipment: toggle presets (dumbbells, bench, pull-up bar, bands,
-kettlebell, barbell, squat rack, medicine ball, stability ball, suspension
-trainer, jump rope, ab wheel, plyo box, foam roller, sliders, cable machine,
-treadmill, stationary bike, rowing machine, elliptical) or add custom items.
-Presets filter the library; custom items are passed to the AI only. Bodyweight
-is always available.
+- The Firebase web config is a public identifier, not a secret. Access is enforced by
+  the Firestore rules: each user can read and write only their own documents.
+- An Anthropic API key, if provided, is kept only in that browser's `localStorage`,
+  is sent only to Anthropic, and is never synced.
+- All user- and model-generated text is HTML-escaped before rendering.
 
 ## Data model
 
-Workouts are stored as:
-```json
+```jsonc
+// Strength workout
 {
-  "id": 1234567890,
-  "date": "2026-07-15T00:00:00.000Z",
-  "duration": 30,
+  "id": 1759276800000,
+  "date": "2026-10-01T13:00:00.000Z",
+  "duration": 35,
   "region": "upper",
   "exercises": [
-    {"name": "Dumbbell bench press", "sets": 3, "reps": 10, "weight": 35}
+    { "name": "Dumbbell bench press", "sets": 4, "reps": 8, "weight": 45 },
+    { "name": "Plank", "sets": 3, "reps": 45, "weight": 0, "unit": "sec" }
   ]
+}
+
+// Activity
+{
+  "id": 1759363200000,
+  "date": "2026-10-02T13:00:00.000Z",
+  "type": "activity",
+  "activity": "Outdoor walk",
+  "duration": 40,
+  "effort": "Easy",
+  "distance": 2.3,
+  "distanceUnit": "mi",
+  "exercises": []
 }
 ```
 
-Activity entries use `"type": "activity"` with `activity`, `duration`, and
-optional `distance`, `distanceUnit`, `effort` and `notes` (`exercises` is `[]`).
-Exercise `unit` is omitted for reps, `"sec"` for timed sets, `"min"` for steady
+Exercise `unit` is omitted for reps, `"sec"` for timed sets and `"min"` for steady
 cardio blocks.
 
 ## Roadmap
 
-- [x] Region of focus, editable equipment, library fallback, backup/restore, PWA
-- [x] Cross-device sync (Firebase Auth + Firestore) with Google login
-- [ ] Host on tejasrj.io (currently planned as a subdomain)
-- [ ] Optional server-side proxy for the Anthropic key if sharing with others
+- [x] Time- and focus-based suggestions from a curated, equipment-aware library
+- [x] Strength and activity logging with history
+- [x] Installable PWA with offline support
+- [x] Cross-device sync with Google sign-in and guest accounts
+- [x] Hosted at [train.tejasrj.io](https://train.tejasrj.io)
+- [ ] Shared AI suggestions through a server-side proxy (Cloudflare Worker holding the
+      API key, restricted to allowlisted accounts), in progress on `feature/ai-proxy`
+- [ ] Progress charts (volume and frequency over time)
