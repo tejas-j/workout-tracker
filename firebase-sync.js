@@ -50,7 +50,7 @@ try {
       }
     },
     signInGuest: () => A.signInAnonymously(auth),
-    getIdToken: () => auth.currentUser.getIdToken(),
+    getIdToken: forceRefresh => auth.currentUser.getIdToken(forceRefresh),
     // Upgrades a guest account to Google, keeping its uid and cloud data.
     // If that Google account already exists, switch to it instead; local data
     // is then merged into it by the next sync.

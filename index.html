@@ -265,7 +265,7 @@
       <button class="btn btn-primary" id="saveKeyBtn">Save key</button>
       <p class="settings-note">
         Optional. With a key, suggestions come from Claude Haiku using your equipment, focus and recent history.
-        Accounts with shared AI access get this without a key when signed in with Google.
+        AI suggestions are also available without a key, with a daily limit (higher when signed in with Google).
         Without one, the app builds a workout from its built-in library. The key stays in this browser's local
         storage and is sent only to Anthropic. Use your own key, and don't paste one on a shared device.
       </p>
@@ -309,9 +309,28 @@ const REGION_STORAGE = 'region_v1';
 const EQUIP_UPDATED_STORAGE = 'equipmentUpdated_v1';
 const SYNCED_STORAGE = 'syncedIds_v1';
 const MODEL = 'claude-haiku-4-5';
-// Shared-key proxy (worker/). Signed-in Google users on its allowlist get AI
-// suggestions without their own key. Empty = disabled.
+// AI proxy (worker/), backed by Gemini. Available to everyone with daily limits
+// enforced by the Worker; signed-in Google users get higher limits. Empty = disabled.
 const AI_PROXY_URL = '';
+// JSON shape the proxy asks Gemini to return for a workout suggestion.
+const WORKOUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    focus: { type: 'string' },
+    exercises: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' }, sets: { type: 'integer' }, reps: { type: 'integer' },
+          weight: { type: 'number' }, unit: { type: 'string', enum: ['reps', 'sec', 'min'] }
+        },
+        required: ['name', 'sets', 'reps', 'weight', 'unit']
+      }
+    }
+  },
+  required: ['focus', 'exercises']
+};
 
 // ---------- Helpers ----------
 const $ = id => document.getElementById(id);
@@ -626,16 +645,23 @@ Equipment: ${equipment.length ? equipment.join(', ') : 'none'}.
 Recent workout history (most recent first): ${recent.length ? JSON.stringify(recent) : 'none logged yet'}.
 Suggest today's workout.`;
 
-  let text;
+  let text, remaining;
   if (via.proxy) {
-    const response = await fetch(AI_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + await cloud.getIdToken() },
-      body: JSON.stringify({ system: systemPrompt, prompt: userPrompt })
-    });
+    // Signed-in Google users send their ID token for the higher limit; everyone else goes without.
+    const call = async forceRefresh => {
+      const headers = { 'Content-Type': 'application/json' };
+      if (cloudUser && !cloudUser.isAnonymous && window.cloud) headers.Authorization = 'Bearer ' + await cloud.getIdToken(forceRefresh);
+      return fetch(AI_PROXY_URL, {
+        method: 'POST', headers,
+        body: JSON.stringify({ system: systemPrompt, prompt: userPrompt, schema: WORKOUT_SCHEMA })
+      });
+    };
+    let response = await call(false);
+    if (response.status === 401) response = await call(true);
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(data.error || `Proxy error ${response.status}`), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(data.error || `AI error ${response.status}`), { status: response.status });
     text = data.text || '';
+    remaining = data.remaining;
   } else {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -655,6 +681,7 @@ Suggest today's workout.`;
   const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
   if (!Array.isArray(parsed.exercises) || !parsed.exercises.length) throw new Error('No exercises in response.');
   return {
+    remaining,
     focus: String(parsed.focus || regionLabel),
     exercises: parsed.exercises.map(e => ({
       name: String(e.name || 'Exercise'),
@@ -680,16 +707,17 @@ $('suggestBtn').addEventListener('click', async () => {
   let suggestion, source = 'From the built-in library', note = '';
 
   // Own key wins; otherwise the shared proxy for signed-in Google users; otherwise the library.
-  const via = key ? { key } : (AI_PROXY_URL && cloudUser && !cloudUser.isAnonymous) ? { proxy: true } : null;
+  const via = key ? { key } : AI_PROXY_URL ? { proxy: true } : null;
   let noteKind = 'err';
   if (via) {
     setStatus('suggestStatus', '', '');
     $('suggestStatus').innerHTML = '<span class="spinner"></span> Thinking...';
     try {
       suggestion = await aiSuggestion(via, minutes);
-      source = via.key ? 'AI suggestion (your key)' : 'AI suggestion';
+      source = via.key ? 'AI suggestion (your key)'
+        : 'AI suggestion' + (Number.isFinite(suggestion.remaining) ? ` · ${suggestion.remaining} left today` : '');
     } catch (err) {
-      if (err.status === 403) { note = 'AI suggestions aren\'t enabled for this account, so here is a library workout.'; noteKind = ''; }
+      if (err.status === 429) { note = 'You\'ve used today\'s AI suggestions, so here is a library workout.'; noteKind = ''; }
       else note = 'AI suggestion failed (' + err.message + '). Showing a library workout instead.';
     }
   }

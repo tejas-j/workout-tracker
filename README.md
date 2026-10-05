@@ -24,9 +24,10 @@ sessions and everyday activities, and sync your history across devices.
   last logged weight for each one.
 - **Strength and activity logging.** Log sets, reps and weight, or record activities
   like walks, runs, hikes and pickleball with duration, effort and distance.
-- **Optional AI suggestions.** Add your own Anthropic API key to get suggestions from
-  Claude that also account for recent activity and fatigue. Falls back to the library
-  if the call fails.
+- **AI suggestions.** Gemini plans workouts that also account for recent activity and
+  fatigue, through a small proxy that keeps the API key off the client and enforces
+  daily limits per user. Falls back to the library when a limit is reached or the
+  call fails.
 - **Local-first with cloud sync.** Works offline and signed out. Sign in with Google
   to sync across devices, or continue as a guest and link Google later.
 - **Installable PWA.** Add to the home screen on iOS or Android; the app shell is
@@ -42,7 +43,7 @@ sessions and everyday activities, and sync your history across devices.
 | Storage | `localStorage` is the source of truth on each device |
 | Sync | Firebase Authentication (Google and anonymous) + Cloud Firestore |
 | Offline | Service worker with stale-while-revalidate caching |
-| AI (optional) | Anthropic Messages API (Claude Haiku), called with the user's own key |
+| AI | Gemini API behind a Cloudflare Worker (`worker/`) that verifies Firebase ID tokens and enforces tiered daily limits |
 | Hosting | GitHub Pages with a custom domain |
 
 **Sync model.** Every change is written locally first, then mirrored to
@@ -62,6 +63,7 @@ manifest.webmanifest  PWA manifest
 firestore.rules       Firestore security rules
 icons/                App icons
 docs/screenshots/     README images
+worker/               Cloudflare Worker AI proxy (see worker/README.md)
 ```
 
 ## Running locally
@@ -92,8 +94,9 @@ To deploy your own copy:
 
 - The Firebase web config is a public identifier, not a secret. Access is enforced by
   the Firestore rules: each user can read and write only their own documents.
-- An Anthropic API key, if provided, is kept only in that browser's `localStorage`,
-  is sent only to Anthropic, and is never synced.
+- The Gemini API key lives only in the Worker's secret store. The Worker accepts requests
+  only from the app's origin, verifies Firebase ID tokens for signed-in users, and limits
+  signed-out use per IP (stored hashed) and in total.
 - All user- and model-generated text is HTML-escaped before rendering.
 
 ## Data model
@@ -135,6 +138,5 @@ cardio blocks.
 - [x] Installable PWA with offline support
 - [x] Cross-device sync with Google sign-in and guest accounts
 - [x] Hosted at [train.tejasrj.io](https://train.tejasrj.io)
-- [ ] Shared AI suggestions through a server-side proxy (Cloudflare Worker holding the
-      API key, restricted to allowlisted accounts), in progress on `feature/ai-proxy`
+- [x] AI suggestions through a server-side proxy with tiered daily limits
 - [ ] Progress charts (volume and frequency over time)

@@ -1,46 +1,116 @@
-// Local test: real token verification against a locally generated key, fake Claude client.
+// Local tests: real token verification against a locally generated key,
+// an in-memory KV store and a fake Gemini endpoint. Makes no network calls.
 import { generateKeyPair, SignJWT, createLocalJWKSet, exportJWK } from 'jose';
 import { handle } from './src/index.js';
 
+const PROJECT = 'workout-tracker-67216';
+const ORIGIN = 'https://train.tejasrj.io';
 const { publicKey, privateKey } = await generateKeyPair('RS256');
 const keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }] });
-const PROJECT = 'workout-tracker-67216';
-const token = (claims, opts = {}) => new SignJWT({ email_verified: true, firebase: { sign_in_provider: 'google.com' }, ...claims })
-  .setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuedAt().setExpirationTime(opts.exp || '1h')
-  .setIssuer(opts.iss || `https://securetoken.google.com/${PROJECT}`).setAudience(PROJECT).setSubject(claims.sub || 'u1').sign(privateKey);
 
-const store = new Map();
-const env = {
-  FIREBASE_PROJECT_ID: PROJECT, ALLOWED_ORIGINS: 'https://train.tejasrj.io', ALLOWED_EMAILS: 'me@x.com, Wife@x.com', DAILY_LIMIT: '2',
-  USAGE: { get: async k => store.get(k) ?? null, put: async (k, v) => store.set(k, v) }
-};
-let calls = [];
-const client = { messages: { create: async p => { calls.push(p); return { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"focus":"x","exercises":[]}' }] }; } } };
-const req = (tok, body = { system: 's', prompt: 'p' }, origin = 'https://train.tejasrj.io', method = 'POST') =>
-  new Request('https://w/', { method, headers: { Origin: origin, Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined });
-const run = async (name, r, expect, e = env) => {
-  const res = await handle(r, e, { keys, client });
-  const ok = res.status === expect;
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${res.status} ${await res.text()}`);
-  if (!ok) process.exitCode = 1;
-  return res;
+const token = (claims, opts = {}) => new SignJWT({
+  email_verified: true, firebase: { sign_in_provider: 'google.com' }, ...claims
+}).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuedAt().setExpirationTime(opts.exp || '1h')
+  .setIssuer(opts.iss || `https://securetoken.google.com/${PROJECT}`).setAudience(PROJECT)
+  .setSubject(claims.sub || 'u1').sign(privateKey);
+
+function makeEnv(overrides = {}) {
+  const store = new Map();
+  return {
+    FIREBASE_PROJECT_ID: PROJECT, ALLOWED_ORIGINS: ORIGIN, OWNER_EMAILS: 'Owner@x.com, partner@x.com',
+    GEMINI_API_KEY: 'test-key', LIMIT_OWNER: '3', LIMIT_MEMBER: '2', LIMIT_PUBLIC_PER_IP: '2', LIMIT_PUBLIC_TOTAL: '3',
+    USAGE: { get: async k => store.get(k) ?? null, put: async (k, v) => store.set(k, v), store },
+    ...overrides
+  };
+}
+
+let geminiCalls = [];
+let geminiReply = () => new Response(JSON.stringify({
+  candidates: [{ content: { parts: [{ text: '{"focus":"Upper body","exercises":[]}' }] }, finishReason: 'STOP' }]
+}), { status: 200 });
+const fakeFetch = async (url, init) => { geminiCalls.push({ url, init }); return geminiReply(); };
+
+const req = ({ tok, ip = '1.1.1.1', origin = ORIGIN, method = 'POST', body = { system: 's', prompt: 'p' } } = {}) => {
+  const headers = { Origin: origin, 'CF-Connecting-IP': ip, 'Content-Type': 'application/json' };
+  if (tok) headers.Authorization = `Bearer ${tok}`;
+  return new Request('https://worker/', { method, headers, body: method === 'POST' ? JSON.stringify(body) : undefined });
 };
 
-const me = await token({ email: 'me@x.com', sub: 'u1' });
-await run('preflight allowed origin', req('', null, 'https://train.tejasrj.io', 'OPTIONS'), 204);
-await run('preflight other origin', req('', null, 'https://evil.com', 'OPTIONS'), 403);
-await run('other origin POST', req(me, undefined, 'https://evil.com'), 403);
-await run('no token', req(''), 401);
-await run('garbage token', req('abc.def.ghi'), 401);
-await run('expired token', req(await token({ email: 'me@x.com' }, { exp: '-1m' })), 401);
-await run('wrong project issuer', req(await token({ email: 'me@x.com' }, { iss: 'https://securetoken.google.com/other' })), 401);
-await run('email not allowlisted', req(await token({ email: 'stranger@x.com' })), 403);
-await run('unverified email', req(await token({ email: 'me@x.com', email_verified: false })), 403);
-await run('anonymous guest', req(await token({ email: 'me@x.com', firebase: { sign_in_provider: 'anonymous' } })), 403);
-await run('oversized prompt', req(me, { system: 's', prompt: 'x'.repeat(7000) }), 400);
-await run('missing prompt', req(me, { system: 's' }), 400);
-await run('allowed user (case-insensitive email)', req(await token({ email: 'wife@X.com', sub: 'u2' })), 200);
-await run('allowed user call 1', req(me), 200);
-await run('allowed user call 2', req(me), 200);
-await run('daily limit hit', req(me), 429);
-console.log('model sent:', calls[0].model, '| max_tokens:', calls[0].max_tokens, '| claude calls:', calls.length);
+let failures = 0;
+async function check(name, request, expectStatus, env, expectBody) {
+  const res = await handle(request, env, { keys, fetch: fakeFetch });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : null;
+  const ok = res.status === expectStatus && (!expectBody || Object.entries(expectBody).every(([k, v]) => body?.[k] === v));
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${res.status} ${text}`);
+  if (!ok) failures++;
+  return body;
+}
+
+// --- request validation and origin ---
+let env = makeEnv();
+await check('preflight from allowed origin', req({ method: 'OPTIONS' }), 204, env);
+await check('preflight from other origin', req({ method: 'OPTIONS', origin: 'https://evil.com' }), 403, env);
+await check('POST from other origin', req({ origin: 'https://evil.com' }), 403, env);
+await check('missing prompt', req({ body: { system: 's' } }), 400, env);
+await check('oversized prompt', req({ body: { system: 's', prompt: 'x'.repeat(7000) } }), 400, env);
+await check('oversized schema', req({ body: { system: 's', prompt: 'p', schema: { d: 'x'.repeat(5000) } } }), 400, env);
+await check('not configured (no KV)', req(), 503, makeEnv({ USAGE: undefined }));
+await check('not configured (no key)', req(), 503, makeEnv({ GEMINI_API_KEY: undefined }));
+
+// --- auth ---
+await check('garbage token', req({ tok: 'abc.def.ghi' }), 401, env);
+await check('expired token', req({ tok: await token({ email: 'owner@x.com' }, { exp: '-1m' }) }), 401, env);
+await check('token for another project', req({ tok: await token({ email: 'owner@x.com' }, { iss: 'https://securetoken.google.com/other' }) }), 401, env);
+
+// --- tiers ---
+env = makeEnv();
+const owner = await token({ email: 'OWNER@x.com', sub: 'o1' });
+await check('owner 1/3', req({ tok: owner }), 200, env, { tier: 'owner', remaining: 2 });
+await check('owner 2/3', req({ tok: owner }), 200, env, { tier: 'owner', remaining: 1 });
+await check('owner 3/3', req({ tok: owner }), 200, env, { tier: 'owner', remaining: 0 });
+await check('owner over limit', req({ tok: owner }), 429, env, { tier: 'owner' });
+await check('second owner has own quota', req({ tok: await token({ email: 'partner@x.com', sub: 'o2' }) }), 200, env, { tier: 'owner' });
+
+const member = await token({ email: 'friend@x.com', sub: 'm1' });
+await check('member 1/2', req({ tok: member }), 200, env, { tier: 'member', remaining: 1 });
+await check('member 2/2', req({ tok: member }), 200, env, { tier: 'member', remaining: 0 });
+await check('member over limit', req({ tok: member }), 429, env, { tier: 'member' });
+await check('unverified email is public', req({ tok: await token({ email: 'owner@x.com', email_verified: false, sub: 'x' }), ip: '9.9.9.9' }), 200, env, { tier: 'public' });
+
+env = makeEnv();
+await check('public ip A 1/2', req({ ip: '2.2.2.2' }), 200, env, { tier: 'public', remaining: 1 });
+await check('guest token counts as public ip A 2/2', req({ ip: '2.2.2.2', tok: await token({ firebase: { sign_in_provider: 'anonymous' }, sub: 'g1' }) }), 200, env, { tier: 'public', remaining: 0 });
+await check('public ip A over limit', req({ ip: '2.2.2.2' }), 429, env, { tier: 'public' });
+await check('public ip B uses last pool slot', req({ ip: '3.3.3.3' }), 200, env, { tier: 'public' });
+await check('public pool exhausted for ip C', req({ ip: '4.4.4.4' }), 429, env, { tier: 'public' });
+await check('pool does not block owners', req({ tok: owner, ip: '4.4.4.4' }), 200, env, { tier: 'owner' });
+const storedKeys = [...env.USAGE.store.keys()].join(' ');
+console.log(`${/2\.2\.2\.2|3\.3\.3\.3/.test(storedKeys) ? 'FAIL' : 'PASS'} raw IPs are not stored`);
+if (/2\.2\.2\.2|3\.3\.3\.3/.test(storedKeys)) failures++;
+
+// --- Gemini request and response handling ---
+env = makeEnv({ LIMIT_PUBLIC_PER_IP: '50', LIMIT_PUBLIC_TOTAL: '50' });
+geminiCalls = [];
+const schema = { type: 'object', properties: { focus: { type: 'string' } } };
+await check('passes schema through', req({ body: { system: 'sys', prompt: 'hello', schema } }), 200, env);
+const call = geminiCalls[0];
+const sent = JSON.parse(call.init.body);
+const shapeOk = call.url.endsWith('/gemini-3.5-flash-lite:generateContent') && !call.url.includes('key=') &&
+  call.init.headers['x-goog-api-key'] === 'test-key' && sent.systemInstruction.parts[0].text === 'sys' &&
+  sent.contents[0].parts[0].text === 'hello' && sent.generationConfig.responseMimeType === 'application/json' &&
+  JSON.stringify(sent.generationConfig.responseSchema) === JSON.stringify(schema);
+console.log(`${shapeOk ? 'PASS' : 'FAIL'} Gemini request shape (key in header, not URL)`);
+if (!shapeOk) failures++;
+
+geminiReply = () => new Response('{}', { status: 429 });
+await check('Gemini rate limited', req(), 503, env);
+geminiReply = () => new Response('{}', { status: 500 });
+await check('Gemini server error', req(), 502, env);
+geminiReply = () => new Response(JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' } }), { status: 200 });
+await check('Gemini blocked prompt', req(), 422, env);
+geminiReply = () => new Response(JSON.stringify({ candidates: [{ finishReason: 'SAFETY', content: { parts: [] } }] }), { status: 200 });
+await check('Gemini safety stop', req(), 422, env);
+
+console.log(failures ? `\n${failures} FAILED` : '\nAll tests passed');
+process.exitCode = failures ? 1 : 0;

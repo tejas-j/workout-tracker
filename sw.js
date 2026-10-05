@@ -1,5 +1,5 @@
 // Stale-while-revalidate for same-origin files so the app opens offline.
-const CACHE = 'training-log-v4';
+const CACHE = 'training-log-v5';
 const SHELL = ['./', 'index.html', 'exercises.js', 'firebase-sync.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {
