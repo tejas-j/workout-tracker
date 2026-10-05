@@ -32,7 +32,9 @@ sessions and everyday activities, and sync your history across devices.
   to sync across devices, or continue as a guest and link Google later.
 - **Installable PWA.** Add to the home screen on iOS or Android; the app shell is
   cached for offline use.
-- **Backup and restore.** Export and import all data as JSON.
+- **Export and import.** A JSON backup (shared to Files or Drive on phones), a CSV with one
+  row per exercise, or a text summary with a prompt to paste into any AI chatbot.
+- **Day and Night themes**, or match the system setting.
 
 ## How it works
 
@@ -55,13 +57,16 @@ settings use last-write-wins.
 ## Project structure
 
 ```
-index.html            App UI, state, logging, history, suggestions and sync logic
+index.html            Markup for the screens, sheets and tab bar
+styles.css            Design tokens (Day/Night themes) and components
+app.js                State, logging, history, suggestions, export and sync logic
 exercises.js          Exercise library, focus areas, equipment and the workout builder
 firebase-sync.js      Firebase Auth + Firestore wrapper, loaded as an ES module
 sw.js                 Service worker for offline support
 manifest.webmanifest  PWA manifest
 firestore.rules       Firestore security rules
 icons/                App icons
+docs/design/          Design spec and build plan for the redesign
 docs/screenshots/     README images
 worker/               Cloudflare Worker AI proxy (see worker/README.md)
 ```
