@@ -14,11 +14,14 @@ LIMIT_MEMBER_TOTAL = "150"
 LIMIT_PUBLIC_PER_IP = "5"
 LIMIT_PUBLIC_TOTAL = "50"
 
-# Daily usage counters. Create with `npx wrangler kv namespace create USAGE`
-# and replace the id below with the one it prints.
-[[kv_namespaces]]
-binding = "USAGE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# Daily usage counters, kept in a Durable Object so counts are exact.
+[[durable_objects.bindings]]
+name = "USAGE_COUNTER"
+class_name = "UsageCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UsageCounter"]
 
 # Secrets are never stored in this file. Set them with:
 #   npx wrangler secret put GEMINI_API_KEY

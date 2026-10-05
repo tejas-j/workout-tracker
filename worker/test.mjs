@@ -1,7 +1,8 @@
 // Local tests: real token verification against a locally generated key,
 // an in-memory KV store and a fake Gemini endpoint. Makes no network calls.
 import { generateKeyPair, SignJWT, createLocalJWKSet, exportJWK } from 'jose';
-import { handle } from './src/index.js';
+import { handle } from './src/handler.js';
+import { UsageLedger } from './src/usage.js';
 
 const PROJECT = 'workout-tracker-67216';
 const ORIGIN = 'https://train.tejasrj.io';
@@ -14,12 +15,23 @@ const token = (claims, opts = {}) => new SignJWT({
   .setIssuer(opts.iss || `https://securetoken.google.com/${PROJECT}`).setAudience(PROJECT)
   .setSubject(claims.sub || 'u1').sign(privateKey);
 
-function makeEnv(overrides = {}) {
+// In-memory stand-in for Durable Object storage, driving the real UsageLedger logic.
+function fakeCounterNamespace() {
   const store = new Map();
+  const storage = {
+    get: async k => store.get(k),
+    put: async (k, v) => { if (typeof k === 'object') Object.entries(k).forEach(([a, b]) => store.set(a, b)); else store.set(k, v); },
+    deleteAll: async () => store.clear()
+  };
+  const instance = new UsageLedger(storage);
+  return { idFromName: name => name, get: () => instance, store };
+}
+
+function makeEnv(overrides = {}) {
   return {
     FIREBASE_PROJECT_ID: PROJECT, ALLOWED_ORIGINS: ORIGIN, OWNER_EMAILS: 'Owner@x.com, partner@x.com',
     GEMINI_API_KEY: 'test-key', LIMIT_OWNER: '3', LIMIT_MEMBER: '2', LIMIT_MEMBER_TOTAL: '3', LIMIT_PUBLIC_PER_IP: '2', LIMIT_PUBLIC_TOTAL: '3',
-    USAGE: { get: async k => store.get(k) ?? null, put: async (k, v) => store.set(k, v), store },
+    USAGE_COUNTER: fakeCounterNamespace(),
     ...overrides
   };
 }
@@ -55,7 +67,7 @@ await check('POST from other origin', req({ origin: 'https://evil.com' }), 403, 
 await check('missing prompt', req({ body: { system: 's' } }), 400, env);
 await check('oversized prompt', req({ body: { system: 's', prompt: 'x'.repeat(7000) } }), 400, env);
 await check('oversized schema', req({ body: { system: 's', prompt: 'p', schema: { d: 'x'.repeat(5000) } } }), 400, env);
-await check('not configured (no KV)', req(), 503, makeEnv({ USAGE: undefined }));
+await check('not configured (no counter)', req(), 503, makeEnv({ USAGE_COUNTER: undefined }));
 await check('not configured (no key)', req(), 503, makeEnv({ GEMINI_API_KEY: undefined }));
 
 // --- auth ---
@@ -90,7 +102,7 @@ await check('public ip A over limit', req({ ip: '2.2.2.2' }), 429, env, { tier: 
 await check('public ip B uses last pool slot', req({ ip: '3.3.3.3' }), 200, env, { tier: 'public' });
 await check('public pool exhausted for ip C', req({ ip: '4.4.4.4' }), 429, env, { tier: 'public' });
 await check('pool does not block owners', req({ tok: owner, ip: '4.4.4.4' }), 200, env, { tier: 'owner' });
-const storedKeys = [...env.USAGE.store.keys()].join(' ');
+const storedKeys = [...env.USAGE_COUNTER.store.keys()].join(' ');
 console.log(`${/2\.2\.2\.2|3\.3\.3\.3/.test(storedKeys) ? 'FAIL' : 'PASS'} raw IPs are not stored`);
 if (/2\.2\.2\.2|3\.3\.3\.3/.test(storedKeys)) failures++;
 
@@ -105,8 +117,21 @@ await check('Pacific: still Oct 5 after UTC midnight', req({ ip: '7.7.7.7' }), 4
 await check('Pacific: resets after Pacific midnight', req({ ip: '7.7.7.7' }), 200, env, { remaining: 1 }, justAfterMidnight);
 const winter = makeEnv();
 await check('Pacific (PST, winter): 23:59 PST is still Dec 1', req({ ip: '8.8.8.8' }), 200, winter, null, '2026-12-02T07:59:00Z');
-console.log(`${[...winter.USAGE.store.keys()].every(k => k.startsWith('2026-12-01')) ? 'PASS' : 'FAIL'} winter key uses Dec 1`);
-if (![...winter.USAGE.store.keys()].every(k => k.startsWith('2026-12-01'))) failures++;
+console.log(`${winter.USAGE_COUNTER.store.get('day') === '2026-12-01' ? 'PASS' : 'FAIL'} winter counter day is Dec 1`);
+if (winter.USAGE_COUNTER.store.get('day') !== '2026-12-01') failures++;
+
+// --- counter atomicity: concurrent requests never exceed a limit ---
+env = makeEnv({ LIMIT_PUBLIC_PER_IP: '3', LIMIT_PUBLIC_TOTAL: '100' });
+const burst = await Promise.all(Array.from({ length: 10 }, () => handle(req({ ip: '6.6.6.6' }), env, { keys, fetch: fakeFetch })));
+const okCount = burst.filter(r => r.status === 200).length;
+console.log(`${okCount === 3 ? 'PASS' : 'FAIL'} 10 concurrent requests, limit 3: ${okCount} allowed`);
+if (okCount !== 3) failures++;
+// old day's counters are cleared at rollover
+await check('rollover clears yesterday', req({ ip: '6.6.6.6' }), 200, env, { remaining: 2 }, '2099-01-01T12:00:00Z');
+const st = env.USAGE_COUNTER.store;
+const reset = st.get('day') === '2099-01-01' && st.get('n:public-pool') === 1 && st.size === 3;
+console.log(`${reset ? 'PASS' : 'FAIL'} counters reset at rollover (day=${st.get('day')}, pool=${st.get('n:public-pool')}, keys=${st.size})`);
+if (!reset) failures++;
 
 // --- Gemini request and response handling ---
 env = makeEnv({ LIMIT_PUBLIC_PER_IP: '50', LIMIT_PUBLIC_TOTAL: '50' });
