@@ -21,7 +21,7 @@ is reached the app falls back to its built-in exercise library.
 |---|---|---|
 | `GEMINI_API_KEY` | secret | Gemini API key from Google AI Studio |
 | `OWNER_EMAILS` | secret | Comma-separated emails for the owner tier |
-| `USAGE` | KV namespace | Daily usage counters (expire after 48 hours) |
+| `USAGE_COUNTER` | Durable Object | Exact daily usage counters, cleared when the day changes |
 | `GEMINI_MODEL` | var | Model ID, default `gemini-3.5-flash-lite` |
 | `LIMIT_OWNER`, `LIMIT_MEMBER`, `LIMIT_MEMBER_TOTAL`, `LIMIT_PUBLIC_PER_IP`, `LIMIT_PUBLIC_TOTAL` | vars | Daily limits |
 | `ALLOWED_ORIGINS`, `FIREBASE_PROJECT_ID` | vars | Allowed sites and the Firebase project to trust |
@@ -39,16 +39,12 @@ Secrets are set with Wrangler and are never stored in the repository.
    npm install
    npx wrangler login
    ```
-3. **Create the KV namespace** and paste the printed `id` into `wrangler.toml`:
-   ```bash
-   npx wrangler kv namespace create USAGE
-   ```
-4. **Set the secrets** (each command prompts for the value):
+3. **Set the secrets** (each command prompts for the value):
    ```bash
    npx wrangler secret put GEMINI_API_KEY
    npx wrangler secret put OWNER_EMAILS
    ```
-5. **Deploy:**
+4. **Deploy** (this also creates the usage-counter Durable Object):
    ```bash
    npx wrangler deploy
    ```
@@ -60,4 +56,5 @@ Secrets are set with Wrangler and are never stored in the repository.
 npm test
 ```
 
-Runs the tier, auth, validation and upstream error tests locally, with no network calls.
+Runs the tier, pool, day-rollover, concurrency, auth, validation and upstream error tests
+locally, with no network calls. `npm run dev` runs the Worker in the local Workers runtime.
