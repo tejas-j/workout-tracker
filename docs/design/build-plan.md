@@ -42,15 +42,15 @@ Each phase ships on its own branch and is merged to `main` after testing.
 - [x] Manual workout logging moves to a sheet (History → + Log), with a date for backfilling
 
 ## Phase 3: Live workout and rest timer · `feature/live-workout`
-- [ ] Live set screen: progress segments, set pips, steppers, "Last time" line
-- [ ] `activeSession_v1` persisted on every change; resume on load
-- [ ] Rest screen: conic ring, ±15s, skip, up next; starts after each set
-- [ ] Chime (two 880Hz beeps) and vibration at 0
-- [ ] Screen Wake Lock during a session
-- [ ] Swap exercise (same group, allowed by equipment)
-- [ ] End early saves what's done; with no sets done, discard
-- [ ] Workout complete: stats, "better than last time", Save
-- [ ] Settings: rest length, chime, keep awake, AI picks my workout (synced)
+- [x] Live set screen: progress segments, set pips, steppers, "Last time" line
+- [x] `activeSession_v1` persisted on every change; resume on load
+- [x] Rest screen: conic ring, ±15s, skip, up next; starts after each set
+- [x] Chime (two 880Hz beeps) and vibration at 0
+- [x] Screen Wake Lock during a session
+- [x] Swap exercise (same group, allowed by equipment), before the exercise's first set
+- [x] End early reviews and saves what's done (with Keep going); with no sets done, just leave
+- [x] Workout complete: stats, "better than last time", Save
+- [x] Settings: rest length, chime, keep awake, AI picks my workout (synced)
 
 ## Phase 4: Progress, goal and streak · `feature/progress-history`
 - [ ] Weekly goal 3 / 4 / 5 with goal history, synced

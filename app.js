@@ -106,6 +106,7 @@ applyTheme();
 
 // ---------- Tabs ----------
 function showTab(tab) {
+  document.body.classList.remove('no-tabs');
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + tab));
   window.scrollTo(0, 0);
@@ -218,6 +219,7 @@ function setSetting(key, value) {
 
 // ---------- Settings screen ----------
 function renderSettings() {
+  setSeg('restSeg', settings.restSeconds);
   document.querySelectorAll('[data-pref]').forEach(row => row.setAttribute('aria-checked', !!settings[row.dataset.pref]));
 }
 document.querySelectorAll('[data-pref]').forEach(row => row.addEventListener('click', () => {
@@ -225,6 +227,7 @@ document.querySelectorAll('[data-pref]').forEach(row => row.addEventListener('cl
   setSetting(key, !settings[key]);
   if (key === 'aiPick' && settings.aiPick) generatePlan({});
 }));
+onSeg('restSeg', v => setSetting('restSeconds', Number(v)));
 renderSettings();
 
 // Number steppers: buttons with data-step="<input id>" and data-by="<delta>".
@@ -609,6 +612,7 @@ function renderToday() {
     : '<div class="empty">Nothing fits that time with your equipment. Try more minutes, another focus, or add equipment in Settings.</div>';
   $('startBtn').disabled = !plan.exercises.length;
   renderMinuteChips();
+  renderResume();
   const done = workouts.filter(w => localDate(w.date) === today());
   $('loggedBanner').hidden = !done.length;
   $('loggedBanner').textContent = done.some(w => w.type !== 'activity')
@@ -661,7 +665,6 @@ $('focusChips').addEventListener('click', e => {
   generatePlan({ focus: c.dataset.focus });
 });
 
-$('startBtn').addEventListener('click', () => openLogSheet({ minutes: plan.minutes, focus: plan.focus, exercises: plan.exercises }));
 
 // Asks the AI proxy for a workout. Signed-in Google users send their ID token for the higher limit.
 async function aiSuggestion(mins, region) {
@@ -709,6 +712,323 @@ Plan today's workout.`;
     }))
   };
 }
+
+// ---------- Live workout ----------
+const SESSION_STORAGE = 'activeSession_v1';
+const RESUME_WINDOW = 3 * 3600000; // reopen straight into a session touched in the last 3 hours
+let session = load(SESSION_STORAGE, null);
+let ticker = null, wakeLock = null, audioCtx = null;
+
+const mmss = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(r).padStart(2, '0'); };
+const amount = (reps, unit) => unit === 'sec' ? `${reps}s` : unit === 'min' ? `${reps} min` : `${reps}`;
+const repsStep = unit => unit === 'sec' ? 5 : 1;
+
+function saveSession() {
+  if (session) { session.updatedAt = Date.now(); save(SESSION_STORAGE, session); }
+  else try { localStorage.removeItem(SESSION_STORAGE); } catch {}
+}
+// Most recent logged occurrence of an exercise, before this session.
+function previous(name) {
+  for (const w of workouts) {
+    const e = w.exercises.find(x => x.name === name);
+    if (e) return { ...e, maxWeight: Math.max(e.weight || 0, ...(e.log || []).map(s => s.weight || 0)) };
+  }
+  return null;
+}
+
+function usesWeights(e) {
+  const lib = LIBRARY.find(x => x.name === e.name);
+  return lib ? lib.needs.some(n => /dumbbell|kettlebell|barbell|medicine ball/i.test(n)) : e.weight > 0;
+}
+
+// Screens without the tab bar
+function showScreen(name) {
+  document.body.classList.toggle('no-tabs', name === 'live' || name === 'done');
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
+  window.scrollTo(0, 0);
+}
+
+// ----- Chime, vibration and wake lock -----
+function unlockAudio() {
+  // iOS only plays Web Audio started from a tap, so create/resume the context on taps.
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume?.(); } catch {}
+}
+function chime() {
+  if (!settings.chime) return;
+  try {
+    const ctx = audioCtx;
+    if (ctx) [0, 0.22].forEach(d => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + d;
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.2);
+    });
+  } catch {}
+  try { navigator.vibrate?.([120, 80, 120]); } catch {}
+}
+async function keepAwake(on) {
+  try {
+    if (on && settings.keepAwake && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+      if (!wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch { wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && session && session.phase !== 'done') { keepAwake(true); renderLive(); }
+});
+
+// ----- Session lifecycle -----
+function startSession(exercises, { focus, label } = {}) {
+  unlockAudio();
+  const list = exercises.map(e => ({ name: e.name, sets: e.sets, reps: e.reps, weight: e.weight || 0, ...(e.unit ? { unit: e.unit } : {}), done: [] }));
+  session = { id: Date.now(), startedAt: Date.now(), focus, label, exercises: list, ex: 0, set: 0,
+    reps: list[0].reps, weight: list[0].weight, phase: 'set', restEndsAt: 0, restTotal: 0, lastLabel: '' };
+  saveSession();
+  openLive();
+}
+function openLive() {
+  if (session.phase === 'done') { renderDone(); showScreen('done'); return; }
+  showScreen('live');
+  keepAwake(true);
+  renderLive();
+  clearInterval(ticker);
+  ticker = setInterval(tick, 250);
+}
+function closeSession() {
+  clearInterval(ticker);
+  keepAwake(false);
+  session = null;
+  saveSession();
+  showTab('today');
+  renderToday();
+}
+function tick() {
+  if (!session || session.phase === 'done') return;
+  if (session.phase === 'rest' && Date.now() >= session.restEndsAt) {
+    // Chime only if the rest actually ended just now, not while the phone was away.
+    if (Date.now() - session.restEndsAt < 3000) chime();
+    session.phase = 'set';
+    saveSession();
+    renderLive();
+    return;
+  }
+  renderClock();
+}
+function renderClock() {
+  $('elapsed').textContent = mmss((Date.now() - session.startedAt) / 1000);
+  if (session.phase !== 'rest') return;
+  const left = Math.max(0, (session.restEndsAt - Date.now()) / 1000);
+  $('restLeft').textContent = mmss(Math.ceil(left));
+  $('restOf').textContent = 'of ' + mmss(session.restTotal);
+  $('ring').style.setProperty('--pct', (100 - Math.round(left / session.restTotal * 100)) + '%');
+}
+
+function renderLive() {
+  if (!session) return;
+  if (session.phase === 'rest' && Date.now() >= session.restEndsAt) session.phase = 'set';
+  const l = session, cur = l.exercises[l.ex], rest = l.phase === 'rest';
+  $('setView').hidden = rest;
+  $('restView').hidden = !rest;
+  $('swapBtn').hidden = rest;
+  $('segs').innerHTML = l.exercises.map((e, i) => {
+    const pct = i < l.ex ? 100 : i > l.ex ? 0 : Math.round(e.done.length / e.sets * 100);
+    return `<div style="background:linear-gradient(90deg,var(--ink) ${pct}%,var(--line) ${pct}%)"></div>`;
+  }).join('');
+  if (rest) {
+    $('restHeader').textContent = l.lastLabel;
+    $('upNextName').textContent = cur.name;
+    $('upNextDetail').textContent = `Set ${l.set + 1} of ${cur.sets} · ${amount(l.reps, cur.unit)}${cur.unit ? '' : ' reps'}${l.weight ? ' @ ' + l.weight + ' lb' : ''}`;
+  } else {
+    $('exCount').textContent = `Exercise ${l.ex + 1} of ${l.exercises.length}`;
+    $('exName').textContent = cur.name;
+    const prev = previous(cur.name);
+    $('exLast').textContent = prev
+      ? `Last time: ${prev.sets}×${amount(prev.reps, prev.unit)}${prev.weight ? ' @ ' + prev.weight + ' lb' : ''}`
+      : usesWeights(cur)
+        ? 'New exercise. Pick a weight that feels like 7/10.'
+        : 'New exercise. Stop a couple of reps short of your limit.';
+    $('pips').innerHTML = Array.from({ length: cur.sets }, (_, i) => {
+      const d = cur.done[i];
+      return d ? `<div class="done">✓ ${esc(amount(d.reps, cur.unit))}</div>`
+        : `<div class="${i === l.set ? 'cur' : ''}">Set ${i + 1}</div>`;
+    }).join('');
+    $('repsLabel').textContent = cur.unit === 'sec' ? 'Seconds' : cur.unit === 'min' ? 'Minutes' : 'Reps';
+    if (document.activeElement !== $('liveReps')) $('liveReps').value = l.reps;
+    if (document.activeElement !== $('liveWeight')) $('liveWeight').value = l.weight ? l.weight : 'BW';
+    $('setDoneBtn').textContent = `Set ${l.set + 1} done`;
+    const next = l.exercises[l.ex + 1];
+    $('nextHint').textContent = l.set + 1 < cur.sets ? `Then rest ${mmss(settings.restSeconds)}`
+      : next ? `Next · ${next.name} ${next.sets}×${amount(next.reps, next.unit)}` : 'Last set. Finish strong.';
+  }
+  renderClock();
+}
+
+function setDone() {
+  unlockAudio();
+  const l = session, cur = l.exercises[l.ex];
+  cur.done.push({ reps: l.reps, weight: l.weight });
+  l.lastLabel = `${cur.name} · set ${cur.done.length} of ${cur.sets} ✓`;
+  const restFor = () => { l.phase = 'rest'; l.restTotal = settings.restSeconds; l.restEndsAt = Date.now() + settings.restSeconds * 1000; };
+  if (cur.done.length < cur.sets) {
+    l.set = cur.done.length;
+    restFor();
+  } else if (l.ex + 1 < l.exercises.length) {
+    l.ex++; l.set = 0;
+    const n = l.exercises[l.ex];
+    l.reps = n.reps; l.weight = n.weight;
+    restFor();
+  } else {
+    finishSession();
+    return;
+  }
+  saveSession();
+  renderLive();
+}
+$('setDoneBtn').addEventListener('click', setDone);
+
+// Steppers and typed values
+function adjust(field, by) {
+  const cur = session.exercises[session.ex];
+  session[field] = field === 'reps' ? Math.max(1, session.reps + by * repsStep(cur.unit)) : Math.max(0, session.weight + by * 5);
+  saveSession();
+  renderLive();
+}
+$('repsDown').addEventListener('click', () => adjust('reps', -1));
+$('repsUp').addEventListener('click', () => adjust('reps', 1));
+$('weightDown').addEventListener('click', () => adjust('weight', -1));
+$('weightUp').addEventListener('click', () => adjust('weight', 1));
+$('liveReps').addEventListener('change', e => { session.reps = Math.max(1, Math.round(Number(e.target.value)) || session.reps); saveSession(); renderLive(); });
+$('liveWeight').addEventListener('focus', e => { if (e.target.value === 'BW') e.target.value = ''; e.target.select(); });
+$('liveWeight').addEventListener('change', e => { const v = parseFloat(e.target.value); session.weight = v > 0 ? v : 0; saveSession(); });
+$('liveWeight').addEventListener('blur', () => renderLive());
+
+// Rest controls
+$('restMinus').addEventListener('click', () => { session.restEndsAt = Math.max(Date.now() + 1000, session.restEndsAt - 15000); saveSession(); renderClock(); });
+$('restPlus').addEventListener('click', () => {
+  session.restEndsAt += 15000;
+  session.restTotal = Math.max(session.restTotal, Math.ceil((session.restEndsAt - Date.now()) / 1000));
+  saveSession(); renderClock();
+});
+$('skipRestBtn').addEventListener('click', () => { session.phase = 'set'; saveSession(); renderLive(); });
+
+// Swap the current exercise for another one from the same muscle group that the equipment allows.
+$('swapBtn').addEventListener('click', () => {
+  const l = session, cur = l.exercises[l.ex];
+  if (cur.done.length) { toast('Swap before the first set of an exercise.'); return; }
+  const group = groupOf(cur.name);
+  const have = new Set(equipment.map(e => e.toLowerCase()));
+  const used = new Set(l.exercises.map(e => e.name));
+  const options = LIBRARY.filter(ex => ex.group === group && !used.has(ex.name) && ex.needs.every(n => have.has(n.toLowerCase())));
+  if (!options.length) { toast('No swap available for this one.'); return; }
+  const lastDone = lastDoneMap();
+  options.sort((a, b) => (lastDone[a.name] || 0) - (lastDone[b.name] || 0));
+  const alt = options[0];
+  const weight = lastWeights()[alt.name] || 0;
+  l.exercises[l.ex] = { name: alt.name, sets: cur.sets, reps: alt.reps, weight, ...(alt.unit ? { unit: alt.unit } : {}), done: [] };
+  l.reps = alt.reps; l.weight = weight;
+  saveSession();
+  renderLive();
+  toast('Swapped to ' + alt.name);
+});
+
+// End early: with nothing done, just leave; otherwise review and save what's done.
+$('endBtn').addEventListener('click', () => {
+  if (!session.exercises.some(e => e.done.length)) { closeSession(); return; }
+  finishSession();
+});
+
+// ----- Workout complete -----
+function finishSession() {
+  session.phase = 'done';
+  session.finishedAt = Date.now();
+  saveSession();
+  clearInterval(ticker);
+  keepAwake(false);
+  renderDone();
+  showScreen('done');
+}
+function sessionSummary() {
+  const done = session.exercises.filter(e => e.done.length);
+  const sets = done.reduce((a, e) => a + e.done.length, 0);
+  const volume = done.reduce((a, e) => a + (e.unit ? 0 : e.done.reduce((b, d) => b + d.reps * d.weight, 0)), 0);
+  const minutes = Math.max(1, Math.round(((session.finishedAt || Date.now()) - session.startedAt) / 60000));
+  const improvements = [];
+  for (const e of done) {
+    const prev = previous(e.name);
+    if (!prev) continue;
+    const mw = Math.max(...e.done.map(d => d.weight));
+    const mr = Math.max(...e.done.filter(d => d.weight === mw).map(d => d.reps));
+    if (mw > prev.maxWeight) improvements.push({ name: e.name, delta: `${prev.maxWeight || 'BW'} → ${mw} lb` });
+    else if (mw === prev.maxWeight && mr > prev.reps) improvements.push({ name: e.name, delta: `+${mr - prev.reps} ${e.unit === 'sec' ? 'sec' : e.unit === 'min' ? 'min' : 'reps'}` });
+  }
+  return { done, sets, volume, minutes, improvements };
+}
+function doneHeadline() { return { eyebrow: 'Workout complete', sub: '' }; }
+function renderDone() {
+  const s = sessionSummary();
+  const head = doneHeadline();
+  $('doneEyebrow').textContent = head.eyebrow;
+  $('doneSub').textContent = head.sub;
+  $('doneSub').hidden = !head.sub;
+  const vol = s.volume >= 1000 ? (s.volume / 1000).toFixed(1) + 'k' : String(Math.round(s.volume));
+  $('doneStats').innerHTML = [[s.minutes, 'minutes'], [s.sets, s.sets === 1 ? 'set' : 'sets'], [vol, 'lb moved']]
+    .map(([v, k]) => `<div><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
+  $('improveTitle').textContent = s.improvements.length ? 'Better than last time' : 'Showed up. That counts.';
+  $('improvements').innerHTML = s.improvements.map(i => `<div class="imp"><b>${esc(i.name)}</b><span class="tag">${esc(i.delta)}</span></div>`).join('');
+  const remaining = session.exercises.some(e => e.done.length < e.sets);
+  $('keepGoingBtn').hidden = !remaining;
+}
+$('saveSessionBtn').addEventListener('click', () => {
+  const s = sessionSummary();
+  const entry = {
+    id: session.id,
+    date: new Date(session.startedAt).toISOString(),
+    duration: s.minutes,
+    region: session.focus || 'full',
+    exercises: s.done.map(e => {
+      const last = e.done[e.done.length - 1];
+      return { name: e.name, sets: e.done.length, reps: last.reps, weight: last.weight, ...(e.unit ? { unit: e.unit } : {}), log: e.done };
+    })
+  };
+  closeSession();
+  addEntry(entry);
+  toast(savedToast());
+});
+function savedToast() { return 'Workout saved'; }
+$('keepGoingBtn').addEventListener('click', () => {
+  const l = session;
+  l.phase = 'set';
+  l.ex = l.exercises.findIndex(e => e.done.length < e.sets);
+  const cur = l.exercises[l.ex];
+  l.set = cur.done.length;
+  const lastSet = cur.done[cur.done.length - 1];
+  l.reps = lastSet?.reps ?? cur.reps; l.weight = lastSet?.weight ?? cur.weight;
+  delete l.finishedAt;
+  saveSession();
+  openLive();
+});
+$('discardBtn').addEventListener('click', () => { if (confirm('Discard this workout? Nothing will be saved.')) closeSession(); });
+
+// ----- Start and resume -----
+$('startBtn').addEventListener('click', () => {
+  if (session && !confirm('You have an unfinished workout. Start a new one instead?')) return;
+  startSession(plan.exercises, { focus: plan.focus, label: plan.label });
+});
+function renderResume() {
+  $('resumeCard').hidden = !session;
+  if (session) {
+    const done = session.exercises.reduce((a, e) => a + e.done.length, 0);
+    $('resumeSub').textContent = `Started ${new Date(session.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${done} set${done === 1 ? '' : 's'} done`;
+  }
+}
+$('resumeBtn').addEventListener('click', () => { unlockAudio(); openLive(); });
+$('resumeDiscardBtn').addEventListener('click', () => {
+  if (!session.exercises.some(e => e.done.length) || confirm('Discard the unfinished workout?')) closeSession();
+});
 
 // ---------- Cloud sync (Firebase) ----------
 let cloudUser = null;
@@ -829,6 +1149,8 @@ renderSyncUI();
 
 // ---------- Start ----------
 if (!plan || plan.day !== today()) generatePlan(); else renderToday();
+// Reopen straight into a workout that was interrupted recently (reload, locked phone).
+if (session && Date.now() - (session.updatedAt || 0) < RESUME_WINDOW) openLive();
 // A new day brings a new plan, even if the app stayed open overnight.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && plan?.day !== today()) generatePlan();

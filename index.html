@@ -35,6 +35,13 @@
       <span id="goalPillSlot"></span>
     </div>
     <div class="banner" id="loggedBanner" hidden></div>
+    <div class="resume card" id="resumeCard" hidden>
+      <div><div class="row-title">Unfinished workout</div><div class="row-sub" id="resumeSub"></div></div>
+      <div class="btn-row">
+        <button class="btn btn-primary btn-small" id="resumeBtn">Resume</button>
+        <button class="btn btn-secondary btn-small" id="resumeDiscardBtn">Discard</button>
+      </div>
+    </div>
     <div class="today-head">
       <span class="label">Today's workout</span>
       <h1 class="screen-title"><button class="today-title" id="todayTitle" data-open="sheet-focus" aria-label="Change focus"></button></h1>
@@ -46,6 +53,81 @@
       <div class="chip-row" id="minuteChips" role="group" aria-label="Minutes"></div>
       <button class="btn btn-primary split" id="startBtn">Start workout<span aria-hidden="true">→</span></button>
       <button class="text-btn" data-open="sheet-activity">Log a walk, run or sport instead</button>
+    </div>
+  </section>
+
+  <!-- LIVE WORKOUT (no tab bar) -->
+  <section class="screen live" id="screen-live" aria-label="Workout in progress">
+    <div class="live-top">
+      <button class="top-btn" id="endBtn">✕ End</button>
+      <span class="mono" id="elapsed" aria-label="Elapsed time">0:00</span>
+      <button class="top-btn" id="swapBtn">Swap</button>
+    </div>
+
+    <div id="setView">
+      <div class="segs" id="segs" aria-hidden="true"></div>
+      <div class="live-head">
+        <span class="label" id="exCount"></span>
+        <h1 class="live-name" id="exName"></h1>
+        <div class="soft live-last" id="exLast"></div>
+      </div>
+      <div class="pips" id="pips"></div>
+      <div class="stack" style="margin-top:14px">
+        <div class="live-card">
+          <label><span class="label" id="repsLabel">Reps</span><input type="number" class="live-num" id="liveReps" min="1" inputmode="numeric"></label>
+          <div class="step-btns"><button class="step-btn big" id="repsDown" aria-label="Fewer">−</button><button class="step-btn big" id="repsUp" aria-label="More">+</button></div>
+        </div>
+        <div class="live-card" id="weightCard">
+          <label><span class="label">Lb</span><input type="text" class="live-num" id="liveWeight" inputmode="decimal" autocomplete="off"></label>
+          <div class="step-btns"><button class="step-btn big" id="weightDown" aria-label="5 lb lighter">−</button><button class="step-btn big" id="weightUp" aria-label="5 lb heavier">+</button></div>
+        </div>
+      </div>
+      <div class="live-actions">
+        <button class="btn btn-primary tall" id="setDoneBtn">Set done</button>
+        <div class="live-hint mono" id="nextHint"></div>
+      </div>
+    </div>
+
+    <div id="restView" hidden>
+      <div class="rest-label soft" id="restHeader"></div>
+      <div class="ring" id="ring" role="timer" aria-live="off">
+        <div class="ring-inner">
+          <span class="label" style="margin:0;letter-spacing:.12em">Rest</span>
+          <span class="ring-time" id="restLeft">1:30</span>
+          <span class="mono soft" style="font-size:12px" id="restOf">of 1:30</span>
+        </div>
+      </div>
+      <div class="rest-adjust">
+        <button class="btn btn-secondary btn-small mono" id="restMinus">−15s</button>
+        <button class="btn btn-secondary btn-small mono" id="restPlus">+15s</button>
+      </div>
+      <div class="live-actions">
+        <div class="card">
+          <span class="label" style="margin:0">Up next</span>
+          <div class="upnext-name" id="upNextName"></div>
+          <div class="mono soft" style="font-size:13px;margin-top:3px" id="upNextDetail"></div>
+        </div>
+        <button class="btn btn-secondary" id="skipRestBtn">Skip rest</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- WORKOUT COMPLETE (no tab bar) -->
+  <section class="screen done" id="screen-done" aria-labelledby="doneTitle">
+    <div class="done-head">
+      <span class="label" id="doneEyebrow" style="letter-spacing:.1em">Workout complete</span>
+      <h1 class="done-title" id="doneTitle">Done. Nice work.</h1>
+      <div class="soft" id="doneSub"></div>
+    </div>
+    <div class="done-stats" id="doneStats"></div>
+    <div class="section">
+      <span class="label" id="improveTitle"></span>
+      <div class="stack" id="improvements" style="gap:6px"></div>
+    </div>
+    <div class="live-actions">
+      <button class="btn btn-primary" id="saveSessionBtn">Save workout</button>
+      <button class="text-btn" id="keepGoingBtn" hidden>Keep going</button>
+      <button class="text-btn" id="discardBtn">Discard workout</button>
     </div>
   </section>
 
@@ -75,10 +157,25 @@
     </div>
 
     <div class="section">
+      <span class="label" id="restSegLabel">Rest between sets</span>
+      <div class="seg mono" id="restSeg" role="radiogroup" aria-labelledby="restSegLabel">
+        <button data-v="60" role="radio">1:00</button><button data-v="90" role="radio">1:30</button><button data-v="120" role="radio">2:00</button>
+      </div>
+    </div>
+
+    <div class="section">
       <span class="label">Preferences</span>
       <div class="list" id="prefList">
         <button class="row" role="switch" data-pref="aiPick">
           <div><div class="row-title">AI picks my workout</div><div class="row-sub">Uses your recent workouts and activities</div></div>
+          <span class="toggle" aria-hidden="true"></span>
+        </button>
+        <button class="row" role="switch" data-pref="chime">
+          <div><div class="row-title">Chime when rest ends</div><div class="row-sub">Plus a vibration on phones</div></div>
+          <span class="toggle" aria-hidden="true"></span>
+        </button>
+        <button class="row" role="switch" data-pref="keepAwake">
+          <div><div class="row-title">Keep screen awake</div><div class="row-sub">During workouts only</div></div>
           <span class="toggle" aria-hidden="true"></span>
         </button>
       </div>

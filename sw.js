@@ -1,6 +1,6 @@
 // Stale-while-revalidate for the app shell, the Firebase SDK and Google Fonts,
 // so the app opens offline.
-const CACHE = 'training-log-v6';
+const CACHE = 'training-log-v7';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'exercises.js', 'firebase-sync.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 

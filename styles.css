@@ -304,3 +304,62 @@ a.row { text-decoration: none; color: inherit; }
 .big-num:focus { outline: none; border-bottom: 2px solid var(--ink) !important; }
 #customMinutes.big-num { width: 5ch !important; }
 .stepper label { display: block; cursor: text; }
+
+/* ---------- Live workout ---------- */
+.screen.live.active, .screen.done.active { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); }
+#setView, #restView { display: flex; flex-direction: column; flex: 1; }
+#setView[hidden], #restView[hidden] { display: none; }
+.live-top { display: flex; justify-content: space-between; align-items: center; }
+.live-top .mono { font-weight: 500; font-size: 13px; font-variant-numeric: tabular-nums; }
+.top-btn { background: none; border: 0; padding: 0 2px; min-height: 44px; font-size: 13.5px; font-weight: 500; color: var(--soft); cursor: pointer; }
+.segs { display: flex; gap: 4px; padding-top: 12px; }
+.segs div { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.live-head { padding-top: 22px; }
+.live-head .label { margin: 0; }
+.live-name { font-weight: 600; font-size: 24px; line-height: 1.15; letter-spacing: -.015em; margin: 6px 0 0; }
+.live-last { font-size: 13px; margin-top: 6px; }
+.pips { display: flex; gap: 6px; padding-top: 18px; }
+.pips div {
+  flex: 1; height: 38px; border-radius: 10px; border: 1.5px solid var(--line); color: var(--faint);
+  display: flex; align-items: center; justify-content: center; font: 500 13px var(--mono);
+}
+.pips .cur { border-color: var(--ink); color: var(--ink); }
+.pips .done { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.live-card { background: var(--surface); border-radius: 16px; padding: 12px 12px 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.live-card .label { margin: 0; }
+.live-card input.live-num {
+  display: block; width: 4.5ch; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--ink);
+  font: 500 50px/1.05 var(--mono); letter-spacing: -.04em; -moz-appearance: textfield;
+}
+.live-num::-webkit-outer-spin-button, .live-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.live-card input.live-num:focus { outline: none; box-shadow: 0 2px 0 var(--ink); }
+.step-btn.big { width: 48px; height: 48px; font-size: 22px; }
+.live-actions { margin-top: auto; padding-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.btn.tall { height: 58px; border-radius: 16px; font-size: 17px; }
+.live-hint { text-align: center; font-size: 12px; color: var(--soft); min-height: 16px; }
+.rest-label { font-size: 13.5px; font-weight: 500; text-align: center; padding-top: 12px; }
+.ring {
+  --pct: 0%;
+  margin: 48px auto 0; width: 228px; height: 228px; border-radius: 50%;
+  background: conic-gradient(var(--accent) 0 var(--pct), var(--surface-2) var(--pct) 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+.ring-inner { width: 208px; height: 208px; border-radius: 50%; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.ring-time { font: 500 62px/1 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.rest-adjust { display: flex; justify-content: center; gap: 8px; margin-top: 26px; }
+.rest-adjust .btn { width: 84px; }
+.upnext-name { font-weight: 600; font-size: 18px; margin-top: 5px; }
+.resume { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+/* ---------- Workout complete ---------- */
+.done-head { text-align: center; padding-top: 48px; }
+.done-head .label { margin: 0; }
+.done-title { font-weight: 600; font-size: 30px; letter-spacing: -.02em; line-height: 1.1; margin: 10px 0 0; }
+.done-head .soft { font-size: 13.5px; margin-top: 6px; }
+.done-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding-top: 24px; }
+.done-stats div { background: var(--surface); border-radius: 14px; padding: 13px; text-align: center; }
+.done-stats b { display: block; font: 500 20px var(--mono); }
+.done-stats span { font-size: 12px; color: var(--soft); }
+.imp { background: var(--surface); border-radius: 14px; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.imp b { font-weight: 600; font-size: 14.5px; }
+.imp .tag { font-size: 12.5px; padding: 3px 7px; border-radius: 5px; }

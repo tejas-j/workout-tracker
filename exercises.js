@@ -281,3 +281,24 @@ function buildLibraryWorkout({ minutes, region, equipment, lastDone = {} }) {
     estimatedMinutes: Math.round(picked.reduce((s, ex) => s + estimateMinutes(ex), 0))
   };
 }
+
+// Muscle group for an exercise name: the library's group when it's a library exercise,
+// otherwise a best guess from keywords (for AI-suggested or hand-typed names).
+const GROUP_KEYWORDS = [
+  ['mobility', /stretch|foam roll|mobility|yoga|cat-cow|child's pose|hip opener/],
+  ['cardio', /jump rope|burpee|jumping jack|mountain climber|high knees|treadmill|bike|rowing|row machine|elliptical|sprint|jog|run/],
+  ['core', /plank|crunch|sit-up|dead bug|bird dog|hollow|russian twist|leg raise|ab wheel|v-up|pallof|bicycle/],
+  ['glutes', /glute|hip thrust|bridge|kickback|clamshell|abduct|lateral walk/],
+  ['legs', /squat|lunge|deadlift|step-up|calf|leg press|leg curl|leg extension|wall sit|split/],
+  ['biceps', /curl/],
+  ['triceps', /tricep|skull|dip|kickback|close-grip|diamond/],
+  ['shoulders', /shoulder|overhead|lateral raise|front raise|rear delt|arnold|face pull|upright row|pike/],
+  ['back', /row|pull-up|pullup|chin-up|pulldown|pullover|superman|y-t-w|back extension/],
+  ['chest', /bench|chest|push-up|pushup|fly|press/],
+];
+function groupOf(name) {
+  const lib = LIBRARY.find(ex => ex.name.toLowerCase() === String(name).toLowerCase());
+  if (lib) return lib.group;
+  const n = String(name).toLowerCase();
+  return GROUP_KEYWORDS.find(([, re]) => re.test(n))?.[0] || null;
+}
