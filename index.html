@@ -29,54 +29,23 @@
 <div class="app">
 
   <!-- TODAY -->
-  <section class="screen active" id="screen-today" aria-labelledby="todayTitle">
-    <span class="label" id="todayTag"></span>
-    <h1 class="screen-title" id="todayTitle">Today</h1>
-
-    <div class="section card">
-      <span class="label">Get a workout</span>
-      <label class="field"><span>Minutes available</span>
-        <input type="number" id="timeAvail" min="5" step="5" value="30" inputmode="numeric"></label>
-      <label class="field"><span>Focus</span>
-        <select id="regionSel"></select></label>
-      <button class="btn btn-primary" id="suggestBtn">Suggest a workout</button>
-      <p id="suggestStatus" class="status note"></p>
-      <div id="suggestionOutput"></div>
+  <section class="screen today active" id="screen-today" aria-labelledby="todayTitle">
+    <div class="today-top">
+      <span class="label" id="todayTag" style="margin:0"></span>
+      <span id="goalPillSlot"></span>
     </div>
-
-    <div class="section card">
-      <span class="label">Log a workout</span>
-      <div class="seg" id="logMode" role="tablist">
-        <button data-mode="strength" class="on">Strength</button>
-        <button data-mode="activity">Activity or sport</button>
-      </div>
-      <div id="strengthForm" style="margin-top:14px">
-        <label class="field"><span>Duration (minutes)</span>
-          <input type="number" id="logDuration" min="1" value="30" inputmode="numeric"></label>
-        <span class="label">Exercises</span>
-        <div id="exerciseRows"></div>
-        <button class="btn btn-secondary" id="addExerciseBtn">+ Add exercise</button>
-        <button class="btn btn-primary" id="saveLogBtn" style="margin-top:10px">Save workout</button>
-      </div>
-      <div id="activityForm" style="margin-top:14px" hidden>
-        <label class="field"><span>Activity</span>
-          <input type="text" id="actName" list="activityList" placeholder="e.g. Outdoor walk, Pickleball"></label>
-        <datalist id="activityList"></datalist>
-        <div class="two-col">
-          <label class="field"><span>Duration (minutes)</span>
-            <input type="number" id="actDuration" min="1" value="45" inputmode="numeric"></label>
-          <label class="field"><span>Effort</span>
-            <select id="actEffort"><option value="">-</option><option>Easy</option><option selected>Moderate</option><option>Hard</option></select></label>
-          <label class="field"><span>Distance (optional)</span>
-            <input type="number" id="actDistance" min="0" step="0.1" placeholder="e.g. 2.5" inputmode="decimal"></label>
-          <label class="field"><span>Unit</span>
-            <select id="actDistUnit"><option>mi</option><option>km</option></select></label>
-        </div>
-        <label class="field"><span>Notes (optional)</span>
-          <input type="text" id="actNotes" placeholder="e.g. doubles, 3 games"></label>
-        <button class="btn btn-primary" id="saveActivityBtn">Save activity</button>
-      </div>
-      <p id="saveStatus" class="status note"></p>
+    <div class="banner" id="loggedBanner" hidden></div>
+    <div class="today-head">
+      <span class="label">Today's workout</span>
+      <h1 class="screen-title"><button class="today-title" id="todayTitle" data-open="sheet-focus" aria-label="Change focus"></button></h1>
+      <div class="reason" id="planReason" hidden><span class="tag">AI</span><span id="planReasonText"></span></div>
+    </div>
+    <div class="plan" id="planList"></div>
+    <p class="note" id="planStatus" aria-live="polite"></p>
+    <div class="today-actions">
+      <div class="chip-row" id="minuteChips" role="group" aria-label="Minutes"></div>
+      <button class="btn btn-primary split" id="startBtn">Start workout<span aria-hidden="true">→</span></button>
+      <button class="text-btn" data-open="sheet-activity">Log a walk, run or sport instead</button>
     </div>
   </section>
 
@@ -84,7 +53,10 @@
   <section class="screen" id="screen-history" aria-labelledby="historyTitle">
     <div class="screen-head">
       <h1 class="screen-title" id="historyTitle">History</h1>
-      <button class="head-link" data-open="sheet-data">Export</button>
+      <div class="head-links">
+        <button class="head-link" id="logManualBtn">+ Log</button>
+        <button class="head-link" data-open="sheet-data">Export</button>
+      </div>
     </div>
     <div class="stack" id="historyList"></div>
   </section>
@@ -99,6 +71,16 @@
         <button data-v="day" role="radio">Day</button>
         <button data-v="night" role="radio">Night</button>
         <button data-v="system" role="radio">Match system</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <span class="label">Preferences</span>
+      <div class="list" id="prefList">
+        <button class="row" role="switch" data-pref="aiPick">
+          <div><div class="row-title">AI picks my workout</div><div class="row-sub">Uses your recent workouts and activities</div></div>
+          <span class="toggle" aria-hidden="true"></span>
+        </button>
       </div>
     </div>
 
@@ -143,6 +125,69 @@
 <!-- Bottom sheets -->
 <div class="sheet-host" id="sheetHost" hidden>
   <div class="scrim" data-close></div>
+
+  <div class="sheet" id="sheet-focus" role="dialog" aria-modal="true" aria-labelledby="focusTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="focusTitle">Focus</h2><button class="sheet-close" data-close>Cancel</button></div>
+    <p class="note" style="margin:-6px 0 0" id="focusNote"></p>
+    <div class="chips" id="focusChips"></div>
+  </div>
+
+  <div class="sheet" id="sheet-minutes" role="dialog" aria-modal="true" aria-labelledby="minutesTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="minutesTitle">How many minutes?</h2><button class="sheet-close" data-close>Cancel</button></div>
+    <div class="stepper">
+      <label for="customMinutes"><span class="label">Minutes</span>
+        <input type="number" id="customMinutes" class="big-num" min="5" max="180" step="5" inputmode="numeric"></label>
+      <div class="step-btns"><button class="step-btn" data-step="customMinutes" data-by="-5" aria-label="5 fewer minutes">−</button><button class="step-btn" data-step="customMinutes" data-by="5" aria-label="5 more minutes">+</button></div>
+    </div>
+    <button class="btn btn-primary" id="customMinutesBtn">Use this</button>
+  </div>
+
+  <div class="sheet" id="sheet-activity" role="dialog" aria-modal="true" aria-labelledby="activityTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="activityTitle">Log an activity</h2><button class="sheet-close" data-close>Cancel</button></div>
+    <div>
+      <span class="label">Recent</span>
+      <div class="chips" id="actChips"></div>
+      <input type="text" id="actName" list="activityList" placeholder="Activity name" aria-label="Activity name" style="margin-top:8px" hidden>
+      <datalist id="activityList"></datalist>
+    </div>
+    <div class="stepper">
+      <label for="actDuration"><span class="label">Duration</span>
+        <span class="stepper-value"><input type="number" id="actDuration" class="big-num" min="1" max="600" inputmode="numeric"><small>min</small></span></label>
+      <div class="step-btns"><button class="step-btn" data-step="actDuration" data-by="-5" aria-label="5 fewer minutes">−</button><button class="step-btn" data-step="actDuration" data-by="5" aria-label="5 more minutes">+</button></div>
+    </div>
+    <div class="stepper">
+      <label for="actDistance"><span class="label">Distance · optional</span>
+        <span class="stepper-value"><input type="number" id="actDistance" class="big-num" min="0" step="0.1" placeholder="0.0" inputmode="decimal"></span></label>
+      <div class="seg mono" id="distUnitSeg" style="width:104px" role="radiogroup" aria-label="Distance unit">
+        <button data-v="mi" role="radio">mi</button><button data-v="km" role="radio">km</button>
+      </div>
+    </div>
+    <div>
+      <span class="label" id="effortLabel">Effort</span>
+      <div class="seg" id="effortSeg" role="radiogroup" aria-labelledby="effortLabel">
+        <button data-v="Easy" role="radio">Easy</button><button data-v="Moderate" role="radio">Moderate</button><button data-v="Hard" role="radio">Hard</button>
+      </div>
+    </div>
+    <input type="text" id="actNotes" placeholder="Notes (optional)" aria-label="Notes">
+    <p id="activityStatus" class="status err"></p>
+    <button class="btn btn-primary" id="saveActivityBtn">Save activity</button>
+  </div>
+
+  <div class="sheet" id="sheet-log" role="dialog" aria-modal="true" aria-labelledby="logTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="logTitle">Log a workout</h2><button class="sheet-close" data-close>Cancel</button></div>
+    <div class="two-col">
+      <label class="field" style="margin:0"><span>Date</span><input type="date" id="logDate"></label>
+      <label class="field" style="margin:0"><span>Minutes</span><input type="number" id="logDuration" min="1" value="30" inputmode="numeric"></label>
+    </div>
+    <label class="field" style="margin:0"><span>Focus</span><select id="logRegion"></select></label>
+    <div>
+      <span class="label">Exercises</span>
+      <div id="exerciseRows"></div>
+      <button class="btn btn-secondary" id="addExerciseBtn">+ Add exercise</button>
+    </div>
+    <p id="saveStatus" class="status err"></p>
+    <button class="btn btn-primary" id="saveLogBtn">Save workout</button>
+  </div>
 
   <div class="sheet" id="sheet-sync" role="dialog" aria-modal="true" aria-labelledby="syncTitle" hidden>
     <div class="sheet-head"><h2 class="sheet-title" id="syncTitle">Sync</h2><button class="sheet-close" data-close>Done</button></div>

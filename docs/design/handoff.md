@@ -95,8 +95,9 @@ Recovery and Routines screens exist in the mockup and are planned for later.
 New localStorage keys. All except the theme mirror to the Firestore profile.
 
 - `theme_v1`: `'day' | 'night' | 'system'` (per device).
-- `weeklyGoal_v1` (default 4) with a goal history so past weeks keep the goal they had,
-  `restSeconds_v1` (default 90), `chime_v1`, `keepAwake_v1`, `aiPick_v1`.
+- `settings_v1`: `{ aiPick, chime, keepAwake, restSeconds (90), weeklyGoal (4), goalHistory }`,
+  where `goalHistory` (`[{ week, goal }]`) lets past weeks keep the goal they had.
+- `minutes_v1`: the last minute choice.
 - `todayPlan_v1`: today's generated plan, so reopening the app shows the same workout.
 - `activeSession_v1`: the in-progress live workout, persisted on every change so a reload
   or a locked phone resumes it.

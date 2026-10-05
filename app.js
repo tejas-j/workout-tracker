@@ -4,10 +4,10 @@
 
 const STORAGE_KEY = 'workoutLog_v1';
 const EQUIPMENT_STORAGE = 'equipment_v1';
-const REGION_STORAGE = 'region_v1';
 const EQUIP_UPDATED_STORAGE = 'equipmentUpdated_v1'; // last profile edit (equipment and synced settings)
 const SYNCED_STORAGE = 'syncedIds_v1';
 const THEME_STORAGE = 'theme_v1';
+const SETTINGS_STORAGE = 'settings_v1';
 // AI proxy (worker/), backed by Gemini. Available to everyone with daily limits
 // enforced by the Worker; signed-in Google users get higher limits. Empty = disabled.
 const AI_PROXY_URL = 'https://workout-ai.tejjammy.workers.dev';
@@ -16,6 +16,7 @@ const WORKOUT_SCHEMA = {
   type: 'object',
   properties: {
     focus: { type: 'string' },
+    reason: { type: 'string' },
     exercises: {
       type: 'array',
       items: {
@@ -28,7 +29,7 @@ const WORKOUT_SCHEMA = {
       }
     }
   },
-  required: ['focus', 'exercises']
+  required: ['focus', 'reason', 'exercises']
 };
 
 // The old bring-your-own Anthropic key option was removed; don't leave a key behind.
@@ -64,8 +65,10 @@ function toast(text) {
 // ---------- State ----------
 let workouts = load(STORAGE_KEY, []);
 let equipment = load(EQUIPMENT_STORAGE, ['Dumbbells', 'Bench']);
+// Synced settings. Theme is per device and lives in THEME_STORAGE instead.
+const DEFAULT_SETTINGS = { aiPick: true, chime: true, keepAwake: true, restSeconds: 90, weeklyGoal: 4, goalHistory: [] };
+let settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_STORAGE, {}) };
 let exerciseRowCount = 0;
-let currentRegion = 'full';
 
 function persistWorkouts() { save(STORAGE_KEY, workouts); }
 function addEntry(entry) {
@@ -73,6 +76,7 @@ function addEntry(entry) {
   workouts.sort((a, b) => new Date(b.date) - new Date(a.date));
   persistWorkouts();
   cloudCall(() => cloud.saveWorkout(entry));
+  renderToday();
 }
 
 // ---------- Theme (per device, not synced) ----------
@@ -136,15 +140,6 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && openSheetEl) closeSheet(); });
 
-// ---------- Region picker ----------
-$('regionSel').innerHTML = Object.entries(REGIONS).map(([k, r]) => `<option value="${k}">${esc(r.label)}</option>`).join('');
-try { const r = localStorage.getItem(REGION_STORAGE); if (REGIONS[r]) currentRegion = r; } catch {}
-$('regionSel').value = currentRegion;
-$('regionSel').addEventListener('change', e => {
-  currentRegion = e.target.value;
-  try { localStorage.setItem(REGION_STORAGE, currentRegion); } catch {}
-});
-
 // ---------- Equipment ----------
 function persistEquipment() {
   save(EQUIPMENT_STORAGE, equipment);
@@ -184,22 +179,66 @@ renderEquipment();
 
 // ---------- Synced profile (equipment + settings), newest edit wins ----------
 function profileData() {
-  return { equipment, updatedAt: load(EQUIP_UPDATED_STORAGE, 0) };
+  return { equipment, settings, updatedAt: load(EQUIP_UPDATED_STORAGE, 0) };
+}
+// Accepts only known settings with the right types, so a bad profile can't break the app.
+function cleanSettings(raw) {
+  const out = { ...DEFAULT_SETTINGS };
+  for (const [k, def] of Object.entries(DEFAULT_SETTINGS)) {
+    const v = raw?.[k];
+    if (Array.isArray(def) ? Array.isArray(v) : typeof v === typeof def) out[k] = v;
+  }
+  out.goalHistory = out.goalHistory.filter(g => g && typeof g.week === 'string' && Number.isFinite(g.goal));
+  return out;
 }
 function applyProfile(p) {
   if (Array.isArray(p.equipment)) {
     equipment = p.equipment.filter(x => typeof x === 'string');
     save(EQUIPMENT_STORAGE, equipment);
   }
+  if (p.settings) {
+    settings = cleanSettings(p.settings);
+    save(SETTINGS_STORAGE, settings);
+  }
   save(EQUIP_UPDATED_STORAGE, p.updatedAt || 0);
   renderEquipment();
+  renderSettings();
+  renderToday();
 }
 function touchProfile() {
   save(EQUIP_UPDATED_STORAGE, Date.now());
   cloudCall(() => cloud.saveProfile(profileData()));
 }
+function setSetting(key, value) {
+  settings[key] = value;
+  save(SETTINGS_STORAGE, settings);
+  touchProfile();
+  renderSettings();
+}
 
-// ---------- Manual workout form ----------
+// ---------- Settings screen ----------
+function renderSettings() {
+  document.querySelectorAll('[data-pref]').forEach(row => row.setAttribute('aria-checked', !!settings[row.dataset.pref]));
+}
+document.querySelectorAll('[data-pref]').forEach(row => row.addEventListener('click', () => {
+  const key = row.dataset.pref;
+  setSetting(key, !settings[key]);
+  if (key === 'aiPick' && settings.aiPick) generatePlan({});
+}));
+renderSettings();
+
+// Number steppers: buttons with data-step="<input id>" and data-by="<delta>".
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-step]');
+  if (!btn) return;
+  const input = $(btn.dataset.step);
+  const min = Number(input.min || 0), max = Number(input.max || Infinity);
+  const v = Math.min(max, Math.max(min, (parseFloat(input.value) || 0) + Number(btn.dataset.by)));
+  input.value = v;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+// ---------- Manual workout log (sheet) ----------
 function addExerciseRow(prefill) {
   exerciseRowCount++;
   const row = document.createElement('div');
@@ -214,7 +253,7 @@ function addExerciseRow(prefill) {
     <label><div class="mini">${prefill?.unit === 'sec' ? 'Secs' : prefill?.unit === 'min' ? 'Mins' : 'Reps'}</div>
       <input type="number" class="ex-reps" min="1" inputmode="numeric" value="${esc(prefill?.reps || 10)}"></label>
     <label><div class="mini">Lb</div>
-      <input type="number" class="ex-weight" min="0" inputmode="decimal" value="${esc(prefill?.weight ?? 20)}"></label>
+      <input type="number" class="ex-weight" min="0" inputmode="decimal" value="${esc(prefill?.weight ?? 0)}"></label>
     <button class="del" aria-label="Remove exercise ${n}">×</button>`;
   row.querySelector('.del').addEventListener('click', () => row.remove());
   $('exerciseRows').appendChild(row);
@@ -225,7 +264,7 @@ function resetExerciseRows(list) {
   if (list && list.length) list.forEach(addExerciseRow); else addExerciseRow();
 }
 $('addExerciseBtn').addEventListener('click', () => addExerciseRow());
-addExerciseRow();
+$('logRegion').innerHTML = Object.entries(REGIONS).map(([k, r]) => `<option value="${k}">${esc(r.label)}</option>`).join('');
 
 function readExerciseRows() {
   const exercises = [];
@@ -243,6 +282,21 @@ function readExerciseRows() {
   });
   return exercises;
 }
+// Opens the manual log sheet, optionally pre-filled (e.g. with today's plan).
+function openLogSheet(prefill) {
+  $('logDate').value = today();
+  $('logDate').max = today();
+  $('logDuration').value = prefill?.minutes || 30;
+  $('logRegion').value = prefill?.focus || 'full';
+  resetExerciseRows(prefill?.exercises);
+  setStatus('saveStatus', '');
+  openSheet('sheet-log');
+}
+$('logManualBtn').addEventListener('click', () => openLogSheet());
+// A past date is saved at noon so it can't slip into a neighbouring day across time zones.
+function entryDate(dateStr) {
+  return !dateStr || dateStr === today() ? new Date().toISOString() : new Date(dateStr + 'T12:00').toISOString();
+}
 $('saveLogBtn').addEventListener('click', () => {
   const duration = parseInt($('logDuration').value) || 0;
   const exercises = readExerciseRows();
@@ -250,38 +304,64 @@ $('saveLogBtn').addEventListener('click', () => {
     setStatus('saveStatus', 'Add at least one exercise before saving.', 'err');
     return;
   }
-  addEntry({ id: Date.now(), date: new Date().toISOString(), duration, region: currentRegion, exercises });
+  addEntry({ id: Date.now(), date: entryDate($('logDate').value), duration, region: $('logRegion').value, exercises });
+  closeSheet();
   toast('Workout saved');
-  setStatus('saveStatus', '');
-  resetExerciseRows();
 });
 
-// ---------- Log mode + activity logging ----------
-function setLogMode(mode) {
-  document.querySelectorAll('#logMode button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
-  $('strengthForm').hidden = mode !== 'strength';
-  $('activityForm').hidden = mode !== 'activity';
-}
-document.querySelectorAll('#logMode button').forEach(b => b.addEventListener('click', () => setLogMode(b.dataset.mode)));
+// ---------- Activity sheet ----------
+const DEFAULT_ACTIVITY_CHIPS = ['Outdoor walk', 'Pickleball', 'Hike', 'Yoga', 'Cycling'];
+let actChoice = null; // selected chip name, or '' for "Other…"
 $('activityList').innerHTML = ACTIVITIES.map(a => `<option value="${esc(a)}">`).join('');
 
+function lastActivity(name) {
+  return workouts.find(w => w.type === 'activity' && (!name || w.activity === name));
+}
+function activityChips() {
+  const recent = [...new Set(workouts.filter(w => w.type === 'activity').map(w => w.activity))];
+  return [...new Set([...recent, ...DEFAULT_ACTIVITY_CHIPS])].slice(0, 5);
+}
+function renderActivityChips() {
+  $('actChips').innerHTML = [...activityChips().map(n => [n, n]), ['', 'Other…']].map(([v, label]) =>
+    `<button class="chip ${actChoice === v ? 'on' : ''}" aria-pressed="${actChoice === v}" data-act="${esc(v)}">${esc(label)}</button>`).join('');
+  $('actName').hidden = actChoice !== '';
+}
+function chooseActivity(name) {
+  actChoice = name;
+  renderActivityChips();
+  const last = name && lastActivity(name);
+  $('actDuration').value = last?.duration || 30;
+  if (last?.effort) setSeg('effortSeg', last.effort);
+  if (name === '') $('actName').focus();
+}
+$('actChips').addEventListener('click', e => { const c = e.target.closest('[data-act]'); if (c) chooseActivity(c.dataset.act); });
+onSeg('effortSeg', v => setSeg('effortSeg', v));
+onSeg('distUnitSeg', v => setSeg('distUnitSeg', v));
+$('sheet-activity').addEventListener('sheet-open', () => {
+  const last = lastActivity();
+  setSeg('effortSeg', 'Moderate');
+  setSeg('distUnitSeg', last?.distanceUnit || 'mi');
+  $('actName').value = ''; $('actDistance').value = ''; $('actNotes').value = '';
+  setStatus('activityStatus', '');
+  chooseActivity(activityChips()[0]);
+});
 $('saveActivityBtn').addEventListener('click', () => {
-  const activity = $('actName').value.trim();
+  const activity = actChoice || $('actName').value.trim();
   const duration = parseInt($('actDuration').value) || 0;
   if (!activity || duration <= 0) {
-    setStatus('saveStatus', 'Enter an activity and a duration.', 'err');
+    setStatus('activityStatus', activity ? 'Enter a duration.' : 'Name the activity.', 'err');
     return;
   }
   const entry = { id: Date.now(), date: new Date().toISOString(), type: 'activity', activity, duration, exercises: [] };
   const distance = parseFloat($('actDistance').value);
-  if (distance > 0) { entry.distance = distance; entry.distanceUnit = $('actDistUnit').value; }
-  if ($('actEffort').value) entry.effort = $('actEffort').value;
+  if (distance > 0) { entry.distance = distance; entry.distanceUnit = $('distUnitSeg').querySelector('.on')?.dataset.v || 'mi'; }
+  const effort = $('effortSeg').querySelector('.on')?.dataset.v;
+  if (effort) entry.effort = effort;
   const notes = $('actNotes').value.trim();
   if (notes) entry.notes = notes;
   addEntry(entry);
+  closeSheet();
   toast(`${activity} logged`);
-  setStatus('saveStatus', '');
-  $('actName').value = ''; $('actDistance').value = ''; $('actNotes').value = '';
 });
 
 // ---------- History ----------
@@ -436,7 +516,30 @@ $('importFile').addEventListener('change', async e => {
   }
 });
 
-// ---------- Suggestions ----------
+// ---------- Today: plan ----------
+const PLAN_STORAGE = 'todayPlan_v1';
+const MINUTES_STORAGE = 'minutes_v1';
+const MINUTE_CHOICES = [20, 30, 45];
+let minutes = load(MINUTES_STORAGE, 30);
+let plan = load(PLAN_STORAGE, null); // { day, focus, minutes, source, label?, reason?, exercises }
+let planToken = 0;
+let aiTimer;
+
+const shortLabel = region => (REGIONS[region]?.label || 'Workout').split(' (')[0].split(' / ')[0];
+const UPPER_REGIONS = ['upper', 'push', 'pull', 'chest', 'back', 'shoulders', 'arms'];
+const LOWER_REGIONS = ['lower', 'legs', 'glutes'];
+
+// Simple rotation from the last strength session: upper → lower → full body → upper.
+function autoFocus() {
+  for (const w of workouts) {
+    if (w.type === 'activity' || !REGIONS[w.region]) continue;
+    if (UPPER_REGIONS.includes(w.region)) return 'lower';
+    if (LOWER_REGIONS.includes(w.region)) return 'full';
+    if (w.region === 'full') return 'upper';
+  }
+  return 'full';
+}
+
 function lastDoneMap() {
   const map = {};
   for (const w of workouts) {
@@ -450,22 +553,133 @@ function lastWeights() {
   for (const w of workouts) for (const e of w.exercises) if (!(e.name in map) && e.weight) map[e.name] = e.weight;
   return map;
 }
+function withLastWeights(exercises) {
+  const weights = lastWeights();
+  return exercises.map(e => weights[e.name] ? { ...e, weight: weights[e.name] } : e);
+}
+function libraryWorkout(mins, region) {
+  const w = buildLibraryWorkout({ minutes: mins, region, equipment, lastDone: lastDoneMap() });
+  return { ...w, exercises: withLastWeights(w.exercises) };
+}
+
+// Builds today's plan from the library right away, then asks the AI for a better one
+// in the background when that's enabled. `focus` overrides the automatic pick for today.
+function generatePlan({ focus, debounce = 0 } = {}) {
+  const day = today();
+  const chosen = focus || (plan && plan.day === day ? plan.focus : autoFocus());
+  const lib = libraryWorkout(minutes, chosen);
+  plan = { day, focus: chosen, minutes, source: 'library', exercises: lib.exercises };
+  save(PLAN_STORAGE, plan);
+  setStatus('planStatus', '');
+  renderToday();
+  clearTimeout(aiTimer);
+  if (settings.aiPick && AI_PROXY_URL && lib.exercises.length) aiTimer = setTimeout(requestAiPlan, debounce);
+}
+
+async function requestAiPlan() {
+  const token = ++planToken;
+  const { focus, minutes: mins } = plan;
+  $('planStatus').className = 'note';
+  $('planStatus').innerHTML = '<span class="spinner"></span> Personalizing with AI…';
+  try {
+    const ai = await aiSuggestion(mins, focus);
+    if (token !== planToken || plan.focus !== focus || plan.minutes !== mins) return;
+    plan = { ...plan, source: 'ai', label: ai.focus, reason: ai.reason, exercises: withLastWeights(ai.exercises) };
+    save(PLAN_STORAGE, plan);
+    renderToday();
+    setStatus('planStatus', Number.isFinite(ai.remaining) && ai.remaining <= 3
+      ? `${ai.remaining} AI pick${ai.remaining === 1 ? '' : 's'} left today.` : '');
+  } catch (err) {
+    if (token !== planToken) return;
+    setStatus('planStatus', err.status === 429
+      ? 'Today\'s AI picks are used up, so this one is from the library.'
+      : 'AI is unavailable right now, so this one is from the library.');
+  }
+}
+
+function renderToday() {
+  if (!plan) return;
+  const label = plan.source === 'ai' && plan.label ? plan.label : shortLabel(plan.focus);
+  $('todayTitle').textContent = `${label} · ${plan.minutes} min`;
+  $('planReason').hidden = !(plan.source === 'ai' && plan.reason);
+  $('planReasonText').textContent = plan.reason || '';
+  $('planList').innerHTML = plan.exercises.length
+    ? plan.exercises.map((e, i) => `<div class="plan-row"><span class="plan-n">${i + 1}</span><span class="plan-name">${esc(e.name)}</span>
+        <span class="plan-meta">${esc(e.sets)}×${esc(fmtReps(e))}${e.weight ? ' · ' + esc(e.weight) : ''}</span></div>`).join('')
+    : '<div class="empty">Nothing fits that time with your equipment. Try more minutes, another focus, or add equipment in Settings.</div>';
+  $('startBtn').disabled = !plan.exercises.length;
+  renderMinuteChips();
+  const done = workouts.filter(w => localDate(w.date) === today());
+  $('loggedBanner').hidden = !done.length;
+  $('loggedBanner').textContent = done.some(w => w.type !== 'activity')
+    ? '✓ Today\'s workout is logged. Anything else is a bonus.'
+    : `✓ ${done[0]?.activity || 'Activity'} logged today. A workout is a bonus.`;
+}
+
+function renderMinuteChips() {
+  const custom = !MINUTE_CHOICES.includes(minutes);
+  $('minuteChips').innerHTML =
+    MINUTE_CHOICES.map(m => `<button class="chip ${m === minutes ? 'on' : ''}" aria-pressed="${m === minutes}" data-min="${m}">${m}m</button>`).join('') +
+    `<button class="chip ${custom ? 'on' : ''}" aria-pressed="${custom}" data-min="custom">${custom ? minutes + 'm' : 'Custom'}</button>` +
+    '<button class="chip text" data-min="shuffle">Shuffle</button>';
+}
+function setMinutes(m) {
+  minutes = m;
+  save(MINUTES_STORAGE, minutes);
+  generatePlan({ debounce: 700 });
+}
+$('minuteChips').addEventListener('click', e => {
+  const c = e.target.closest('[data-min]');
+  if (!c) return;
+  const v = c.dataset.min;
+  if (v === 'shuffle') { generatePlan({ debounce: 700 }); toast('Swapped in different exercises, same focus'); }
+  else if (v === 'custom') { $('customMinutes').value = minutes; openSheet('sheet-minutes'); $('customMinutes').select(); }
+  else setMinutes(Number(v));
+});
+$('customMinutesBtn').addEventListener('click', () => {
+  const m = Math.round(Number($('customMinutes').value));
+  if (!(m >= 5 && m <= 180)) { $('customMinutes').focus(); return; }
+  closeSheet();
+  setMinutes(m);
+});
+$('customMinutes').addEventListener('keydown', e => { if (e.key === 'Enter') $('customMinutesBtn').click(); });
+
+// Focus override sheet
+$('sheet-focus').addEventListener('sheet-open', () => {
+  const suggested = autoFocus();
+  const last = workouts.find(w => w.type !== 'activity' && REGIONS[w.region]);
+  $('focusNote').textContent = last
+    ? `Suggested: ${shortLabel(suggested)}, since your last workout was ${shortLabel(last.region).toLowerCase()}.`
+    : `Suggested: ${shortLabel(suggested)}.`;
+  $('focusChips').innerHTML = Object.keys(REGIONS).map(k =>
+    `<button class="chip ${k === plan.focus ? 'on' : ''}" aria-pressed="${k === plan.focus}" data-focus="${k}">${esc(shortLabel(k))}${k === suggested ? ' · suggested' : ''}</button>`).join('');
+});
+$('focusChips').addEventListener('click', e => {
+  const c = e.target.closest('[data-focus]');
+  if (!c) return;
+  closeSheet();
+  generatePlan({ focus: c.dataset.focus });
+});
+
+$('startBtn').addEventListener('click', () => openLogSheet({ minutes: plan.minutes, focus: plan.focus, exercises: plan.exercises }));
 
 // Asks the AI proxy for a workout. Signed-in Google users send their ID token for the higher limit.
-async function aiSuggestion(minutes) {
-  const regionLabel = REGIONS[currentRegion].label;
-  const recent = workouts.slice(0, 7).map(w => w.type === 'activity'
-    ? { date: String(w.date).slice(0, 10), activity: `${w.activity} ${w.duration}min${w.effort ? ' ' + w.effort : ''}` }
-    : { date: String(w.date).slice(0, 10),
+async function aiSuggestion(mins, region) {
+  const regionLabel = REGIONS[region].label;
+  const recent = workouts.slice(0, 10).map(w => w.type === 'activity'
+    ? { date: localDate(w.date), activity: `${w.activity} ${w.duration}min${w.effort ? ' ' + w.effort : ''}` }
+    : { date: localDate(w.date), focus: shortLabel(w.region),
         exercises: w.exercises.map(e => `${e.name} ${e.sets}x${fmtReps(e)}${e.weight ? '@' + e.weight + 'lb' : ''}`) });
-  const systemPrompt = `You suggest a single home strength workout. Use ONLY the equipment listed by the user (plus bodyweight). Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly this shape:
-{"focus": "short label like 'Upper body push'", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec" or "min"}]}
-Use unit "sec" (reps = seconds per set) for holds and timed intervals, and "min" (reps = minutes) for steady cardio blocks. Weight is in lb, 0 for bodyweight. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. History may include sports or cardio activities; account for their fatigue (e.g. go easier on legs after a long hike). Vary exercises and avoid repeating the same movements as recent history when possible.`;
-  const userPrompt = `Minutes available: ${minutes}.
+  const systemPrompt = `You plan a single home strength workout. Use ONLY the equipment listed by the user (plus bodyweight). Respond with ONLY valid JSON matching this shape:
+{"focus": "short label like 'Upper body push'", "reason": "one sentence", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec" or "min"}]}
+Use unit "sec" (reps = seconds per set) for holds and timed intervals, and "min" (reps = minutes) for steady cardio blocks. Weight is in lb, 0 for bodyweight; when an exercise appears in the history, base its weight on that, adding 5 lb if all sets were completed last time. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. History may include sports or cardio activities; account for their fatigue (e.g. go easier on legs after a long hike). Vary exercises and avoid repeating the same movements as recent history when possible.
+"reason" is one friendly sentence of at most 20 words telling the user why this workout suits today, referring to their recent history when it helps. No exclamation marks.`;
+  const userPrompt = `Today is ${today()}.
+Minutes available: ${mins}.
 Focus: ${regionLabel}.
 Equipment: ${equipment.length ? equipment.join(', ') : 'none'}.
-Recent workout history (most recent first): ${recent.length ? JSON.stringify(recent) : 'none logged yet'}.
-Suggest today's workout.`;
+Recent history (most recent first): ${recent.length ? JSON.stringify(recent) : 'none logged yet'}.
+Plan today's workout.`;
 
   const call = async forceRefresh => {
     const headers = { 'Content-Type': 'application/json' };
@@ -484,62 +698,17 @@ Suggest today's workout.`;
   if (!Array.isArray(parsed.exercises) || !parsed.exercises.length) throw new Error('No exercises in response.');
   return {
     remaining: data.remaining,
-    focus: String(parsed.focus || regionLabel),
-    exercises: parsed.exercises.map(e => ({
-      name: String(e.name || 'Exercise'),
-      sets: Math.max(1, Math.round(Number(e.sets)) || 3),
+    focus: String(parsed.focus || shortLabel(region)).slice(0, 40),
+    reason: String(parsed.reason || '').slice(0, 200),
+    exercises: parsed.exercises.slice(0, 12).map(e => ({
+      name: String(e.name || 'Exercise').slice(0, 80),
+      sets: Math.min(10, Math.max(1, Math.round(Number(e.sets)) || 3)),
       reps: Math.max(1, Math.round(Number(e.reps)) || 10),
       weight: Math.max(0, Number(e.weight) || 0),
       ...(e.unit === 'sec' || e.unit === 'min' ? { unit: e.unit } : {})
     }))
   };
 }
-
-function libraryWorkout(minutes) {
-  const w = buildLibraryWorkout({ minutes, region: currentRegion, equipment, lastDone: lastDoneMap() });
-  const weights = lastWeights();
-  w.exercises.forEach(e => { if (weights[e.name]) e.weight = weights[e.name]; });
-  return w;
-}
-
-$('suggestBtn').addEventListener('click', async () => {
-  const minutes = parseInt($('timeAvail').value) || 30;
-  $('suggestionOutput').innerHTML = '';
-  let suggestion, source = 'From the built-in library', note = '', noteKind = 'err';
-  if (AI_PROXY_URL) {
-    $('suggestStatus').className = 'status note';
-    $('suggestStatus').innerHTML = '<span class="spinner"></span> Thinking…';
-    try {
-      suggestion = await aiSuggestion(minutes);
-      source = 'AI suggestion' + (Number.isFinite(suggestion.remaining) ? ` · ${suggestion.remaining} left today` : '');
-    } catch (err) {
-      if (err.status === 429) { note = 'You\'ve used today\'s AI suggestions, so here is a library workout.'; noteKind = ''; }
-      else note = 'AI suggestion failed (' + err.message + '). Showing a library workout instead.';
-    }
-  }
-  if (!suggestion) suggestion = libraryWorkout(minutes);
-  setStatus('suggestStatus', note, note ? noteKind : '');
-
-  if (!suggestion.exercises.length) {
-    $('suggestionOutput').innerHTML = '<div class="empty">No exercises fit that time and equipment. Try more minutes or add equipment in Settings.</div>';
-    return;
-  }
-  $('suggestionOutput').innerHTML = `
-    <div style="margin-top:16px">
-      <div style="font-weight:600;font-size:16.5px">${esc(suggestion.focus)}</div>
-      <div class="note" style="margin-top:2px">${esc(source)}${suggestion.estimatedMinutes ? ` · about ${suggestion.estimatedMinutes} min` : ''}</div>
-      <div class="plan" style="margin:8px 0 12px">${suggestion.exercises.map((e, i) => `
-        <div class="plan-row"><span class="plan-n">${i + 1}</span><span class="plan-name">${esc(e.name)}</span>
-        <span class="plan-meta">${esc(e.sets)}×${esc(fmtReps(e))}${e.weight ? ' · ' + esc(e.weight) : ''}</span></div>`).join('')}</div>
-      <button class="btn btn-secondary" id="useSuggestionBtn">Use this: fill the log form</button>
-    </div>`;
-  $('useSuggestionBtn').addEventListener('click', () => {
-    setLogMode('strength');
-    resetExerciseRows(suggestion.exercises);
-    $('logDuration').value = minutes;
-    $('exerciseRows').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
-});
 
 // ---------- Cloud sync (Firebase) ----------
 let cloudUser = null;
@@ -657,6 +826,13 @@ window.addEventListener('cloud-failed', () => {
   $('signInBtn').textContent = 'Sync unavailable (offline?)';
 }, { once: true });
 renderSyncUI();
+
+// ---------- Start ----------
+if (!plan || plan.day !== today()) generatePlan(); else renderToday();
+// A new day brings a new plan, even if the app stayed open overnight.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && plan?.day !== today()) generatePlan();
+});
 
 // ---------- PWA ----------
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

@@ -33,13 +33,13 @@ Each phase ships on its own branch and is merged to `main` after testing.
 - [x] Bump the service worker cache and cache the fonts
 
 ## Phase 2: Today, one tap to start · `feature/redesign-today`
-- [ ] Generate today's plan on load (library first, AI when enabled); no Suggest button
-- [ ] Keep the plan for the day (`todayPlan_v1`) so reopening the app doesn't reshuffle
-- [ ] Automatic focus (rotation) with a focus override sheet
-- [ ] Minute chips 20 / 30 / 45 / Custom regenerate the plan; Shuffle re-rolls it
-- [ ] AI reason line (a `reason` field in the AI's JSON)
-- [ ] Activity bottom sheet: recent chips, Other…, duration stepper, distance, effort, notes
-- [ ] Manual workout logging moves to a sheet (History → + Log)
+- [x] Generate today's plan on load (library first, AI when enabled); no Suggest button
+- [x] Keep the plan for the day (`todayPlan_v1`) so reopening the app doesn't reshuffle
+- [x] Automatic focus (rotation) with a focus override sheet
+- [x] Minute chips 20 / 30 / 45 / Custom regenerate the plan; Shuffle re-rolls it
+- [x] AI reason line (a `reason` field in the AI's JSON)
+- [x] Activity bottom sheet: recent chips, Other…, duration stepper, distance, effort, notes
+- [x] Manual workout logging moves to a sheet (History → + Log), with a date for backfilling
 
 ## Phase 3: Live workout and rest timer · `feature/live-workout`
 - [ ] Live set screen: progress segments, set pips, steppers, "Last time" line
