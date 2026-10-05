@@ -18,7 +18,7 @@ function makeEnv(overrides = {}) {
   const store = new Map();
   return {
     FIREBASE_PROJECT_ID: PROJECT, ALLOWED_ORIGINS: ORIGIN, OWNER_EMAILS: 'Owner@x.com, partner@x.com',
-    GEMINI_API_KEY: 'test-key', LIMIT_OWNER: '3', LIMIT_MEMBER: '2', LIMIT_PUBLIC_PER_IP: '2', LIMIT_PUBLIC_TOTAL: '3',
+    GEMINI_API_KEY: 'test-key', LIMIT_OWNER: '3', LIMIT_MEMBER: '2', LIMIT_MEMBER_TOTAL: '3', LIMIT_PUBLIC_PER_IP: '2', LIMIT_PUBLIC_TOTAL: '3',
     USAGE: { get: async k => store.get(k) ?? null, put: async (k, v) => store.set(k, v), store },
     ...overrides
   };
@@ -37,8 +37,8 @@ const req = ({ tok, ip = '1.1.1.1', origin = ORIGIN, method = 'POST', body = { s
 };
 
 let failures = 0;
-async function check(name, request, expectStatus, env, expectBody) {
-  const res = await handle(request, env, { keys, fetch: fakeFetch });
+async function check(name, request, expectStatus, env, expectBody, now) {
+  const res = await handle(request, env, { keys, fetch: fakeFetch, now: now && (() => new Date(now)) });
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   const ok = res.status === expectStatus && (!expectBody || Object.entries(expectBody).every(([k, v]) => body?.[k] === v));
@@ -76,6 +76,11 @@ const member = await token({ email: 'friend@x.com', sub: 'm1' });
 await check('member 1/2', req({ tok: member }), 200, env, { tier: 'member', remaining: 1 });
 await check('member 2/2', req({ tok: member }), 200, env, { tier: 'member', remaining: 0 });
 await check('member over limit', req({ tok: member }), 429, env, { tier: 'member' });
+const member2 = await token({ email: 'other@x.com', sub: 'm2' });
+await check('member pool: second member uses last slot', req({ tok: member2 }), 200, env, { tier: 'member', remaining: 1 });
+await check('member pool exhausted for second member', req({ tok: member2 }), 429, env, { tier: 'member' });
+await check('member pool does not block owners', req({ tok: owner }), 429, env, { tier: 'owner' }); // owner already at 3/3
+await check('member pool does not block other owner', req({ tok: await token({ email: 'partner@x.com', sub: 'o2' }) }), 200, env, { tier: 'owner' });
 await check('unverified email is public', req({ tok: await token({ email: 'owner@x.com', email_verified: false, sub: 'x' }), ip: '9.9.9.9' }), 200, env, { tier: 'public' });
 
 env = makeEnv();
@@ -88,6 +93,20 @@ await check('pool does not block owners', req({ tok: owner, ip: '4.4.4.4' }), 20
 const storedKeys = [...env.USAGE.store.keys()].join(' ');
 console.log(`${/2\.2\.2\.2|3\.3\.3\.3/.test(storedKeys) ? 'FAIL' : 'PASS'} raw IPs are not stored`);
 if (/2\.2\.2\.2|3\.3\.3\.3/.test(storedKeys)) failures++;
+
+// --- days roll over at midnight Pacific time ---
+env = makeEnv();
+const lateOct5 = '2026-10-06T06:59:00Z';   // 23:59 PDT on Oct 5
+const earlyUtcOct6 = '2026-10-06T01:00:00Z'; // already Oct 6 in UTC, still Oct 5 in PDT
+const justAfterMidnight = '2026-10-06T07:01:00Z'; // 00:01 PDT on Oct 6
+await check('Pacific: use 1/2 on Oct 5', req({ ip: '7.7.7.7' }), 200, env, { remaining: 1 }, earlyUtcOct6);
+await check('Pacific: use 2/2 on Oct 5', req({ ip: '7.7.7.7' }), 200, env, { remaining: 0 }, lateOct5);
+await check('Pacific: still Oct 5 after UTC midnight', req({ ip: '7.7.7.7' }), 429, env, null, earlyUtcOct6);
+await check('Pacific: resets after Pacific midnight', req({ ip: '7.7.7.7' }), 200, env, { remaining: 1 }, justAfterMidnight);
+const winter = makeEnv();
+await check('Pacific (PST, winter): 23:59 PST is still Dec 1', req({ ip: '8.8.8.8' }), 200, winter, null, '2026-12-02T07:59:00Z');
+console.log(`${[...winter.USAGE.store.keys()].every(k => k.startsWith('2026-12-01')) ? 'PASS' : 'FAIL'} winter key uses Dec 1`);
+if (![...winter.USAGE.store.keys()].every(k => k.startsWith('2026-12-01'))) failures++;
 
 // --- Gemini request and response handling ---
 env = makeEnv({ LIMIT_PUBLIC_PER_IP: '50', LIMIT_PUBLIC_TOTAL: '50' });

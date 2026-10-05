@@ -6,12 +6,13 @@ and enforces daily limits on the server.
 | Tier | Who | Default daily limit |
 |---|---|---|
 | `owner` | Verified Google accounts listed in the `OWNER_EMAILS` secret | 100 |
-| `member` | Any other verified, signed-in Google account | 20 |
+| `member` | Any other verified, signed-in Google account | 20 each, 150 in total |
 | `public` | Signed-out visitors and guest accounts, counted per IP (stored hashed) | 5 per IP, 50 in total |
 
 Signed-in users are identified by verifying their Firebase ID token (signature, issuer,
 audience, expiry). Requests are only accepted from `ALLOWED_ORIGINS`, prompt and schema
-sizes are capped, and the model and output limit are chosen by the Worker. When a limit
+sizes are capped, and the model and output limit are chosen by the Worker. Days reset at
+midnight Pacific time, when Gemini's free-tier quota resets. When a limit
 is reached the app falls back to its built-in exercise library.
 
 ## Configuration
@@ -22,7 +23,7 @@ is reached the app falls back to its built-in exercise library.
 | `OWNER_EMAILS` | secret | Comma-separated emails for the owner tier |
 | `USAGE` | KV namespace | Daily usage counters (expire after 48 hours) |
 | `GEMINI_MODEL` | var | Model ID, default `gemini-3.5-flash-lite` |
-| `LIMIT_OWNER`, `LIMIT_MEMBER`, `LIMIT_PUBLIC_PER_IP`, `LIMIT_PUBLIC_TOTAL` | vars | Daily limits |
+| `LIMIT_OWNER`, `LIMIT_MEMBER`, `LIMIT_MEMBER_TOTAL`, `LIMIT_PUBLIC_PER_IP`, `LIMIT_PUBLIC_TOTAL` | vars | Daily limits |
 | `ALLOWED_ORIGINS`, `FIREBASE_PROJECT_ID` | vars | Allowed sites and the Firebase project to trust |
 
 Secrets are set with Wrangler and are never stored in the repository.

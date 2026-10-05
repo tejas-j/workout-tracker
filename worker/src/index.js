@@ -1,8 +1,9 @@
 // AI proxy for the app. Holds the Gemini API key so browsers never see it and
 // enforces daily limits per tier on the server:
 //   owner:  verified Google accounts listed in the OWNER_EMAILS secret
-//   member: any other verified, signed-in Google account
+//   member: any other verified, signed-in Google account, each limited plus a shared daily pool
 //   public: everyone else (signed out or guest), counted per IP plus a shared daily pool
+// Days roll over at midnight Pacific time, matching when Gemini's free-tier quota resets.
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -50,9 +51,14 @@ async function identify(request, env, keys) {
   return { tier: 'public', id: `ip:${await sha256(ip)}` };
 }
 
+// "YYYY-MM-DD" for the current day in Pacific time.
+const pacificDay = now => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit'
+}).format(now);
+
 // Counts this request against the caller's daily limits. Returns { ok, remaining, limit }.
-async function consume(store, who, env) {
-  const day = new Date().toISOString().slice(0, 10);
+async function consume(store, who, env, now) {
+  const day = pacificDay(now);
   const limits = {
     owner: int(env.LIMIT_OWNER, 100),
     member: int(env.LIMIT_MEMBER, 20),
@@ -63,17 +69,20 @@ async function consume(store, who, env) {
   const used = int(await store.get(key), 0);
   if (used >= limit) return { ok: false, remaining: 0, limit };
 
-  if (who.tier === 'public') {
-    const poolKey = `${day}:public-pool`;
+  // Members and the public each share a daily pool so together they can't use up
+  // the free-tier quota; owners are only limited individually.
+  const poolLimit = { member: int(env.LIMIT_MEMBER_TOTAL, 150), public: int(env.LIMIT_PUBLIC_TOTAL, 50) }[who.tier];
+  if (poolLimit !== undefined) {
+    const poolKey = `${day}:${who.tier}-pool`;
     const poolUsed = int(await store.get(poolKey), 0);
-    if (poolUsed >= int(env.LIMIT_PUBLIC_TOTAL, 50)) return { ok: false, remaining: 0, limit, pool: true };
+    if (poolUsed >= poolLimit) return { ok: false, remaining: 0, limit, pool: true };
     await store.put(poolKey, String(poolUsed + 1), { expirationTtl: 60 * 60 * 48 });
   }
   await store.put(key, String(used + 1), { expirationTtl: 60 * 60 * 48 });
   return { ok: true, remaining: limit - used - 1, limit };
 }
 
-// deps lets tests swap in a local key set and a fake fetch.
+// deps lets tests swap in a local key set, a fake fetch and a fixed clock.
 export async function handle(request, env, deps = {}) {
   const origin = request.headers.get('Origin') || '';
   const allowedOrigin = list(env.ALLOWED_ORIGINS).includes(origin.toLowerCase()) ? origin : '';
@@ -104,7 +113,7 @@ export async function handle(request, env, deps = {}) {
   // 2. Who is calling, and do they have quota left today?
   const who = await identify(request, env, deps.keys || FIREBASE_JWKS);
   if (!who) return json({ error: 'Sign-in expired' }, 401, cors);
-  const usage = await consume(env.USAGE, who, env);
+  const usage = await consume(env.USAGE, who, env, deps.now ? deps.now() : new Date());
   if (!usage.ok) {
     return json({ error: 'Daily AI limit reached', tier: who.tier, limit: usage.limit }, 429, cors);
   }

@@ -7,9 +7,10 @@ FIREBASE_PROJECT_ID = "workout-tracker-67216"
 # Sites allowed to call this proxy (comma-separated, no trailing slash).
 ALLOWED_ORIGINS = "https://train.tejasrj.io,http://localhost:8000"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
-# Daily request limits per tier.
+# Daily request limits per tier (days reset at midnight Pacific time).
 LIMIT_OWNER = "100"
 LIMIT_MEMBER = "20"
+LIMIT_MEMBER_TOTAL = "150"
 LIMIT_PUBLIC_PER_IP = "5"
 LIMIT_PUBLIC_TOTAL = "50"
 
