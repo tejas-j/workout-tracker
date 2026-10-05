@@ -32,7 +32,7 @@
   <section class="screen today active" id="screen-today" aria-labelledby="todayTitle">
     <div class="today-top">
       <span class="label" id="todayTag" style="margin:0"></span>
-      <span id="goalPillSlot"></span>
+      <button class="goal-pill" id="goalPill" aria-label="Weekly goal progress"><span class="goal-pips" id="goalPips"></span><span class="mono" id="goalText"></span></button>
     </div>
     <div class="banner" id="loggedBanner" hidden></div>
     <div class="resume card" id="resumeCard" hidden>
@@ -131,6 +131,31 @@
     </div>
   </section>
 
+  <!-- PROGRESS -->
+  <section class="screen" id="screen-progress" aria-labelledby="progressTitle">
+    <div class="screen-head"><h1 class="screen-title" id="progressTitle">Progress</h1></div>
+    <div class="stack">
+      <div class="card streak">
+        <div>
+          <span class="label" style="margin:0">Goal streak</span>
+          <div class="streak-n" id="streakN"></div>
+          <div class="row-sub" id="streakNote" style="font-size:12.5px"></div>
+        </div>
+        <div class="goal-pips big" id="streakPips" aria-hidden="true"></div>
+      </div>
+      <div class="card">
+        <div class="card-top"><span class="label" style="margin:0">Weekly volume · lb</span><span class="tag" id="volDelta" hidden></span></div>
+        <div class="vol-total mono" id="volTotal"></div>
+        <div class="bars" id="volBars" aria-hidden="true"></div>
+        <div class="axis mono"><span id="volFirst"></span><span>This wk</span></div>
+      </div>
+      <div class="card lifts">
+        <span class="label" style="margin:0;padding-top:0">Lifts going up</span>
+        <div id="liftRows"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- HISTORY -->
   <section class="screen" id="screen-history" aria-labelledby="historyTitle">
     <div class="screen-head">
@@ -140,7 +165,13 @@
         <button class="head-link" data-open="sheet-data">Export</button>
       </div>
     </div>
-    <div class="stack" id="historyList"></div>
+    <div class="card cal">
+      <div class="card-top label" style="margin-bottom:9px"><span id="calRange"></span><span id="calCount"></span></div>
+      <div class="cal-grid" id="calGrid" aria-hidden="true"></div>
+      <div class="legend mono"><span><i class="k-strength"></i>Strength</span><span><i class="k-activity"></i>Activity</span></div>
+    </div>
+    <h2 class="sub-title">Recent</h2>
+    <div class="stack" id="historyList" style="gap:6px"></div>
   </section>
 
   <!-- SETTINGS -->
@@ -154,6 +185,14 @@
         <button data-v="night" role="radio">Night</button>
         <button data-v="system" role="radio">Match system</button>
       </div>
+    </div>
+
+    <div class="section">
+      <span class="label" id="goalSegLabel">Weekly goal</span>
+      <div class="seg" id="goalSeg" role="radiogroup" aria-labelledby="goalSegLabel">
+        <button data-v="3" role="radio">3 days</button><button data-v="4" role="radio">4 days</button><button data-v="5" role="radio">5 days</button>
+      </div>
+      <p class="note">Days with any workout or activity. Changing it doesn't rewrite past weeks.</p>
     </div>
 
     <div class="section">
@@ -214,6 +253,7 @@
 <nav class="tabbar" aria-label="Main">
   <div class="tabbar-inner">
     <button data-tab="today" class="active">Today</button>
+    <button data-tab="progress">Progress</button>
     <button data-tab="history">History</button>
     <button data-tab="settings">Settings</button>
   </div>
@@ -286,6 +326,12 @@
     <button class="btn btn-primary" id="saveLogBtn">Save workout</button>
   </div>
 
+  <div class="sheet" id="sheet-entry" role="dialog" aria-modal="true" aria-labelledby="entryTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="entryTitle"></h2><button class="sheet-close" data-close>Cancel</button></div>
+    <p class="note" style="margin:-6px 0 0" id="entryMeta"></p>
+    <button class="btn btn-secondary btn-danger" id="deleteEntryBtn">Delete entry</button>
+  </div>
+
   <div class="sheet" id="sheet-sync" role="dialog" aria-modal="true" aria-labelledby="syncTitle" hidden>
     <div class="sheet-head"><h2 class="sheet-title" id="syncTitle">Sync</h2><button class="sheet-close" data-close>Done</button></div>
     <div id="syncOff">
@@ -350,6 +396,7 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="exercises.js"></script>
+<script src="stats.js"></script>
 <script type="module" src="firebase-sync.js"></script>
 <script src="app.js"></script>
 </body>

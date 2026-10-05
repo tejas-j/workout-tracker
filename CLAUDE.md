@@ -6,6 +6,7 @@ A mobile-first workout planner and tracker PWA (train.tejasrj.io). Vanilla HTML/
 - `index.html`: markup for the screens, sheets and tab bar, plus an inline script that applies the theme before first paint.
 - `styles.css`: design tokens (Day/Night) and components.
 - `app.js`: state, UI, logging, history, suggestions and sync glue.
+- `stats.js`: pure functions for weeks, goal and streak, volume, lift trends and PRs.
 - `exercises.js`: exercise library, `REGIONS`, `EQUIPMENT_PRESETS`, `ACTIVITIES`, `buildLibraryWorkout`.
 - `firebase-sync.js`: Firebase Auth and Firestore wrapper (ES module, exposes `window.cloud`).
 - `sw.js`: service worker (stale-while-revalidate). **Bump its cache version whenever shell files change.**
@@ -40,5 +41,6 @@ The primary user trains at home with dumbbells 3–4×/week and has ADHD. The tw
 
 ## Testing
 - `python3 -m http.server 8000`, then open `http://localhost:8000` at a 390px viewport. Check both themes.
+- `node tests/stats.test.js` runs the unit tests for the derived stats.
 - `cd worker && npm test` runs the Worker tests.
 - Before each commit, check by hand: start → complete all sets → rest auto-start and auto-end → complete → save. Then the entry appears in History, the goal count updates, and a reload mid-workout resumes the session.

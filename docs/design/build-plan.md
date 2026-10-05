@@ -53,12 +53,12 @@ Each phase ships on its own branch and is merged to `main` after testing.
 - [x] Settings: rest length, chime, keep awake, AI picks my workout (synced)
 
 ## Phase 4: Progress, goal and streak · `feature/progress-history`
-- [ ] Weekly goal 3 / 4 / 5 with goal history, synced
-- [ ] Goal pill on Today
-- [ ] Goal streak over weeks (activities count)
-- [ ] Weekly volume: 8 bars and % change
-- [ ] Lifts going up: top 3 by weight gain, 6-session sparkline
-- [ ] History: 30-day calendar, volume bars, ACT / PR tags, ⋯ to delete
+- [x] Weekly goal 3 / 4 / 5 with goal history, synced
+- [x] Goal pill on Today
+- [x] Goal streak over weeks (activities count)
+- [x] Weekly volume: 8 bars and % change
+- [x] Lifts going up: top 3 by weight gain, 6-session sparkline
+- [x] History: 30-day calendar, volume bars, ACT / PR tags, ⋯ to delete
 
 ## Later
 - [ ] Recovery map: readiness per muscle group from everything logged, fed into the focus pick and the AI prompt

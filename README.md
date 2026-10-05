@@ -1,47 +1,50 @@
 # Training Log
 
-A mobile-first workout planner and tracker. Tell it how much time you have and what
-you want to train, and it builds a workout that fits your equipment. Log strength
-sessions and everyday activities, and sync your history across devices.
+A mobile-first workout planner and tracker built around one idea: **zero decisions to
+start**. Open the app and today's workout is already planned for the time you have and
+the equipment you own. Tap Start, follow the sets and rest timer, and see your streak and
+lifts go up. Walks, runs and sports count too.
 
 **Live app: [train.tejasrj.io](https://train.tejasrj.io)** (works without signing in)
 
 <p>
-  <img src="docs/screenshots/today.png" alt="Workout suggestion" width="260">
-  <img src="docs/screenshots/history.png" alt="Workout history" width="260">
-  <img src="docs/screenshots/activity.png" alt="Logging an activity" width="260">
+  <img src="docs/screenshots/today.png" alt="Today's ready-to-start workout" width="200">
+  <img src="docs/screenshots/workout.png" alt="Live workout set screen" width="200">
+  <img src="docs/screenshots/progress.png" alt="Progress in the Night theme" width="200">
+  <img src="docs/screenshots/history.png" alt="History calendar and recent sessions" width="200">
 </p>
 
 ## Features
 
-- **Time-boxed workout suggestions.** Choose the minutes available and one of 14 focus
-  areas (full body, upper, lower, push, pull, chest, back, shoulders, arms, legs,
-  glutes, core, cardio, mobility). The app fills the time from a curated library of
-  ~170 exercises.
-- **Equipment-aware.** Toggle from 20 equipment presets or add your own; suggestions
-  only use what you have. Bodyweight is always available.
-- **History-aware.** Prefers exercises you haven't done recently and pre-fills your
-  last logged weight for each one.
-- **Strength and activity logging.** Log sets, reps and weight, or record activities
-  like walks, runs, hikes and pickleball with duration, effort and distance.
-- **AI suggestions.** Gemini plans workouts that also account for recent activity and
-  fatigue, through a small proxy that keeps the API key off the client and enforces
-  daily limits per user. Falls back to the library when a limit is reached or the
-  call fails.
-- **Local-first with cloud sync.** Works offline and signed out. Sign in with Google
-  to sync across devices, or continue as a guest and link Google later.
-- **Installable PWA.** Add to the home screen on iOS or Android; the app shell is
-  cached for offline use.
+- **A workout ready on open.** Today's plan is built automatically, rotating upper body,
+  lower body and full body. Tap the title to pick any of 14 focus areas instead, choose
+  20, 30 or 45 minutes (or your own), or Shuffle for different exercises.
+- **AI planning.** Gemini personalizes the plan from recent workouts and activities and
+  says why in one line, through a small proxy that keeps the API key off the client and
+  enforces daily limits. Falls back to a curated library of ~170 exercises.
+- **Live workout mode.** One set at a time with reps and weight steppers, "last time"
+  numbers, an automatic rest timer with a chime and vibration, exercise swaps, and the
+  screen kept awake. A reload or locked phone resumes where you left off.
+- **Progress you can see.** A weekly goal of active days, a streak of weeks that hit it,
+  weekly volume, lifts going up, "better than last time" after each workout, and a
+  30-day calendar with PR tags.
+- **Equipment-aware.** Choose from 20 equipment presets or add your own.
+- **Activities.** Log walks, hikes, pickleball and more with duration, distance and effort.
+- **Local-first with cloud sync.** Works offline and signed out. Sign in with Google to
+  sync history and settings across devices, or continue as a guest and link Google later.
 - **Export and import.** A JSON backup (shared to Files or Drive on phones), a CSV with one
   row per exercise, or a text summary with a prompt to paste into any AI chatbot.
 - **Day and Night themes**, or match the system setting.
+- **Installable PWA** on iOS and Android, with the app shell cached for offline use.
 
 ## How it works
 
 | Layer | Implementation |
 |---|---|
 | UI | Single-page vanilla HTML/CSS/JS, no build step or framework |
-| Suggestions | Greedy time-budget packer over a curated library (`exercises.js`), rotating across muscle groups and ranked by how recently each exercise was done |
+| Planning | Greedy time-budget packer over a curated library (`exercises.js`), rotating across muscle groups and ranked by how recently each exercise was done |
+| Stats | Pure functions in `stats.js` (weeks, goal history, streak, volume, lift trends, PRs), unit tested in Node |
+| Live workout | Session state saved on every change; the rest timer derives from a timestamp, plus Web Audio, Vibration and Screen Wake Lock APIs |
 | Storage | `localStorage` is the source of truth on each device |
 | Sync | Firebase Authentication (Google and anonymous) + Cloud Firestore |
 | Offline | Service worker with stale-while-revalidate caching |
@@ -51,15 +54,16 @@ sessions and everyday activities, and sync your history across devices.
 **Sync model.** Every change is written locally first, then mirrored to
 `users/{uid}/workouts/{id}` and `users/{uid}/settings/profile`. A sync runs on sign-in,
 on demand, and when the app returns to the foreground. Workouts merge by id, deletions
-on one device propagate to the others instead of being restored, and equipment
-settings use last-write-wins.
+on one device propagate to the others instead of being restored, and equipment and
+settings use last-write-wins. The theme is per device.
 
 ## Project structure
 
 ```
 index.html            Markup for the screens, sheets and tab bar
 styles.css            Design tokens (Day/Night themes) and components
-app.js                State, logging, history, suggestions, export and sync logic
+app.js                State, Today plan, live workout, progress, history, export and sync logic
+stats.js              Derived stats: weeks, goal and streak, volume, lift trends, PRs
 exercises.js          Exercise library, focus areas, equipment and the workout builder
 firebase-sync.js      Firebase Auth + Firestore wrapper, loaded as an ES module
 sw.js                 Service worker for offline support
@@ -68,7 +72,9 @@ firestore.rules       Firestore security rules
 icons/                App icons
 docs/design/          Design spec and build plan for the redesign
 docs/screenshots/     README images
+tests/                Unit tests for stats.js
 worker/               Cloudflare Worker AI proxy (see worker/README.md)
+CLAUDE.md             Project notes for AI coding assistants
 ```
 
 ## Running locally
@@ -79,6 +85,13 @@ Google sign-in don't work from `file://`):
 ```bash
 python3 -m http.server 8000
 # open http://localhost:8000
+```
+
+Tests:
+
+```bash
+node tests/stats.test.js       # stats
+cd worker && npm test          # AI proxy
 ```
 
 ## Deployment
@@ -114,7 +127,9 @@ To deploy your own copy:
   "duration": 35,
   "region": "upper",
   "exercises": [
-    { "name": "Dumbbell bench press", "sets": 4, "reps": 8, "weight": 45 },
+    // "log" (optional) records every set from live workout mode
+    { "name": "Dumbbell bench press", "sets": 3, "reps": 8, "weight": 45,
+      "log": [{ "reps": 8, "weight": 45 }, { "reps": 8, "weight": 45 }, { "reps": 7, "weight": 45 }] },
     { "name": "Plank", "sets": 3, "reps": 45, "weight": 0, "unit": "sec" }
   ]
 }
@@ -144,4 +159,7 @@ cardio blocks.
 - [x] Cross-device sync with Google sign-in and guest accounts
 - [x] Hosted at [train.tejasrj.io](https://train.tejasrj.io)
 - [x] AI suggestions through a server-side proxy with tiered daily limits
-- [ ] Progress charts (volume and frequency over time)
+- [x] Redesign: Day/Night themes, one-tap Today, live workout mode, progress and streaks
+- [ ] Recovery map from everything logged, feeding the automatic focus and the AI
+- [ ] Routines, including a low-energy "bad day" routine
+- [ ] Per-set "felt easy" taps to drive weight progression

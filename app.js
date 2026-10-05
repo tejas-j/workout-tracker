@@ -111,6 +111,7 @@ function showTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + tab));
   window.scrollTo(0, 0);
   if (tab === 'history') renderHistory();
+  if (tab === 'progress') renderProgress();
 }
 document.querySelectorAll('.tabbar button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('todayTag').textContent = new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
@@ -220,6 +221,7 @@ function setSetting(key, value) {
 // ---------- Settings screen ----------
 function renderSettings() {
   setSeg('restSeg', settings.restSeconds);
+  setSeg('goalSeg', settings.weeklyGoal);
   document.querySelectorAll('[data-pref]').forEach(row => row.setAttribute('aria-checked', !!settings[row.dataset.pref]));
 }
 document.querySelectorAll('[data-pref]').forEach(row => row.addEventListener('click', () => {
@@ -228,6 +230,12 @@ document.querySelectorAll('[data-pref]').forEach(row => row.addEventListener('cl
   if (key === 'aiPick' && settings.aiPick) generatePlan({});
 }));
 onSeg('restSeg', v => setSetting('restSeconds', Number(v)));
+onSeg('goalSeg', v => {
+  const next = withGoal(settings, Number(v));
+  settings.goalHistory = next.goalHistory;
+  setSetting('weeklyGoal', next.weeklyGoal);
+  renderToday();
+});
 renderSettings();
 
 // Number steppers: buttons with data-step="<input id>" and data-by="<delta>".
@@ -368,42 +376,65 @@ $('saveActivityBtn').addEventListener('click', () => {
 });
 
 // ---------- History ----------
-function totalVolume(w) {
-  return w.exercises.reduce((sum, e) => sum + (e.unit ? 0 : e.sets * e.reps * (e.weight || 0)), 0);
-}
+function totalVolume(w) { return entryVolume(w); }
 function entryName(w) {
-  return w.type === 'activity' ? w.activity : REGIONS[w.region]?.label || 'Workout';
+  return w.type === 'activity' ? w.activity : REGIONS[w.region]?.label.split(' (')[0] || 'Workout';
+}
+function renderCalendar() {
+  const days = calendarDays(workouts, 30);
+  const todayKey = dayKey(Date.now());
+  $('calGrid').innerHTML = days.map(d => `<i class="${d.kind || ''} ${d.day === todayKey ? 'today' : ''}" title="${esc(d.day)}"></i>`).join('');
+  const fmt = k => new Date(k + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  $('calRange').textContent = `${fmt(days[0].day)} – ${fmt(todayKey)}`;
+  const start = days[0].day;
+  const count = workouts.filter(w => dayKey(w.date) >= start).length;
+  $('calCount').textContent = plural(count, 'session');
 }
 function renderHistory() {
+  renderCalendar();
   const list = $('historyList');
   if (workouts.length === 0) {
     list.innerHTML = '<div class="empty">Nothing logged yet. Your workouts and activities will show up here.</div>';
     return;
   }
+  const prs = personalRecords(workouts);
   const maxVolume = Math.max(...workouts.filter(w => w.type !== 'activity').map(totalVolume), 1);
   list.innerHTML = workouts.map(w => {
     const d = new Date(w.date);
     const date = `<div class="h-date"><small>${esc(d.toLocaleDateString(undefined, { weekday: 'short' }))}</small><b>${d.getDate()}</b></div>`;
-    const more = `<button class="h-more" data-del="${esc(w.id)}" aria-label="Delete ${esc(entryName(w))} on ${esc(d.toLocaleDateString())}">⋯</button>`;
+    const more = `<button class="h-more" data-entry="${esc(w.id)}" aria-label="Options for ${esc(entryName(w))} on ${esc(d.toLocaleDateString())}">⋯</button>`;
     if (w.type === 'activity') {
       const meta = [`${w.duration} min`, w.effort, w.distance && `${w.distance} ${w.distanceUnit || 'mi'}`, w.notes].filter(Boolean).map(esc).join(' · ');
       return `<div class="h-card">${date}<div class="h-body"><div class="h-name">${esc(w.activity)}</div><div class="h-meta">${meta}</div></div><span class="tag act">ACT</span>${more}</div>`;
     }
     const vol = totalVolume(w);
-    const meta = [`${w.duration} min`, `${w.exercises.length} exercise${w.exercises.length === 1 ? '' : 's'}`, vol && `${Math.round(vol).toLocaleString()} lb`].filter(Boolean).join(' · ');
+    const meta = [`${w.duration} min`, plural(w.exercises.length, 'exercise'), vol && `${Math.round(vol).toLocaleString()} lb`].filter(Boolean).join(' · ');
     const exList = w.exercises.map(e => `${esc(e.name)} ${esc(e.sets)}×${esc(fmtReps(e))}${e.weight ? ' @ ' + esc(e.weight) : ''}`).join(' · ');
     return `<div class="h-card">${date}<div class="h-body"><div class="h-name">${esc(entryName(w))}</div><div class="h-meta">${esc(meta)}</div>
       ${vol ? `<div class="h-bar"><div style="width:${Math.round(vol / maxVolume * 100)}%"></div></div>` : ''}
-      <div class="h-ex">${exList}</div></div>${more}</div>`;
+      <div class="h-ex">${exList}</div></div>${prs.has(String(w.id)) ? '<span class="tag">PR</span>' : ''}${more}</div>`;
   }).join('');
 }
+let entryToDelete = null;
 $('historyList').addEventListener('click', e => {
-  const btn = e.target.closest('[data-del]');
-  if (!btn || !confirm('Delete this entry from history?')) return;
-  workouts = workouts.filter(w => String(w.id) !== btn.dataset.del);
+  const btn = e.target.closest('[data-entry]');
+  if (!btn) return;
+  const w = workouts.find(x => String(x.id) === btn.dataset.entry);
+  if (!w) return;
+  entryToDelete = String(w.id);
+  $('entryTitle').textContent = entryName(w);
+  $('entryMeta').textContent = new Date(w.date).toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  openSheet('sheet-entry');
+});
+$('deleteEntryBtn').addEventListener('click', () => {
+  const id = entryToDelete;
+  workouts = workouts.filter(w => String(w.id) !== id);
   persistWorkouts();
-  cloudCall(() => cloud.removeWorkout(btn.dataset.del));
+  cloudCall(() => cloud.removeWorkout(id));
+  closeSheet();
   renderHistory();
+  renderToday();
+  toast('Entry deleted');
 });
 
 // ---------- Export & import ----------
@@ -613,6 +644,7 @@ function renderToday() {
   $('startBtn').disabled = !plan.exercises.length;
   renderMinuteChips();
   renderResume();
+  renderGoalPill();
   const done = workouts.filter(w => localDate(w.date) === today());
   $('loggedBanner').hidden = !done.length;
   $('loggedBanner').textContent = done.some(w => w.type !== 'activity')
@@ -967,7 +999,6 @@ function sessionSummary() {
   }
   return { done, sets, volume, minutes, improvements };
 }
-function doneHeadline() { return { eyebrow: 'Workout complete', sub: '' }; }
 function renderDone() {
   const s = sessionSummary();
   const head = doneHeadline();
@@ -975,7 +1006,7 @@ function renderDone() {
   $('doneSub').textContent = head.sub;
   $('doneSub').hidden = !head.sub;
   const vol = s.volume >= 1000 ? (s.volume / 1000).toFixed(1) + 'k' : String(Math.round(s.volume));
-  $('doneStats').innerHTML = [[s.minutes, 'minutes'], [s.sets, s.sets === 1 ? 'set' : 'sets'], [vol, 'lb moved']]
+  $('doneStats').innerHTML = [[s.minutes, s.minutes === 1 ? 'minute' : 'minutes'], [s.sets, s.sets === 1 ? 'set' : 'sets'], [vol, 'lb moved']]
     .map(([v, k]) => `<div><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
   $('improveTitle').textContent = s.improvements.length ? 'Better than last time' : 'Showed up. That counts.';
   $('improvements').innerHTML = s.improvements.map(i => `<div class="imp"><b>${esc(i.name)}</b><span class="tag">${esc(i.delta)}</span></div>`).join('');
@@ -998,7 +1029,6 @@ $('saveSessionBtn').addEventListener('click', () => {
   addEntry(entry);
   toast(savedToast());
 });
-function savedToast() { return 'Workout saved'; }
 $('keepGoingBtn').addEventListener('click', () => {
   const l = session;
   l.phase = 'set';
@@ -1029,6 +1059,74 @@ $('resumeBtn').addEventListener('click', () => { unlockAudio(); openLive(); });
 $('resumeDiscardBtn').addEventListener('click', () => {
   if (!session.exercises.some(e => e.done.length) || confirm('Discard the unfinished workout?')) closeSession();
 });
+
+// ---------- Progress, goal and streak ----------
+const pips = (n, on) => Array.from({ length: n }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('');
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function renderGoalPill() {
+  const { done, goal } = weekProgress(workouts, settings);
+  $('goalPips').innerHTML = pips(goal, done);
+  $('goalText').textContent = `${Math.min(done, 99)}/${goal} this week`;
+  $('goalPill').setAttribute('aria-label', `${done} of ${goal} active days this week. Open Progress.`);
+}
+$('goalPill').addEventListener('click', () => showTab('progress'));
+
+function streakLine() {
+  const { done, goal, met } = weekProgress(workouts, settings);
+  const streak = goalStreak(workouts, settings);
+  const left = goal - done;
+  return {
+    streak,
+    note: met ? `Goal hit this week. ${streak > 1 ? `${streak} weeks in a row.` : 'Nice start.'}`
+      : streak ? `${plural(left, 'more day')} this week makes it ${streak + 1}.`
+      : `${plural(left, 'more day')} this week starts a streak.`
+  };
+}
+
+function renderProgress() {
+  const { done, goal } = weekProgress(workouts, settings);
+  const { streak, note } = streakLine();
+  $('streakN').textContent = plural(streak, 'week');
+  $('streakNote').textContent = note;
+  $('streakPips').innerHTML = pips(goal, done);
+
+  const weeks = weeklyVolume(workouts, 8);
+  const cur = weeks[7].volume, prev = weeks[6].volume;
+  const max = Math.max(...weeks.map(w => w.volume), 1);
+  $('volTotal').textContent = Math.round(cur).toLocaleString();
+  $('volDelta').hidden = !(prev > 0 && cur > 0);
+  const pct = prev > 0 ? Math.round((cur / prev - 1) * 100) : 0;
+  $('volDelta').textContent = `${pct >= 0 ? '+' : '−'}${Math.abs(pct)}% vs last wk`;
+  $('volBars').innerHTML = weeks.map((w, i) => `<div class="${i === 7 ? 'cur' : ''}" style="height:${Math.max(3, Math.round(w.volume / max * 100))}%" title="${esc(w.week)}: ${Math.round(w.volume).toLocaleString()} lb"></div>`).join('');
+  $('volFirst').textContent = new Date(weeks[0].week + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  const lifts = liftTrends(workouts);
+  $('liftRows').innerHTML = lifts.length ? lifts.map(t => {
+    const top = Math.max(...t.values);
+    return `<div class="lift"><span class="lift-name">${esc(t.name)}</span>
+      <span class="spark" aria-hidden="true">${t.values.map(v => `<i style="height:${Math.max(15, Math.round(v / top * 100))}%"></i>`).join('')}</span>
+      <span class="lift-delta">${esc(t.from)}→${esc(t.to)}</span></div>`;
+  }).join('') : '<div class="empty">Log the same lift a few times and the ones going up will show here.</div>';
+}
+
+// Workout complete headline and save toast, using the goal and streak.
+function doneHeadline() {
+  const withThis = [...workouts, { date: new Date().toISOString(), exercises: [] }]; // count this workout's day
+  const { done, goal } = weekProgress(withThis, settings);
+  const left = goal - done;
+  const streak = goalStreak(withThis, settings);
+  return {
+    eyebrow: `Day ${done} of ${goal} this week`,
+    sub: left <= 0 ? `Weekly goal hit. That's ${plural(streak, 'week')} in a row.`
+      : streak ? `Your ${streak}-week streak is on track. ${plural(left, 'more day')} this week makes it ${streak + 1}.`
+      : `${plural(left, 'more day')} this week hits your goal.`
+  };
+}
+function savedToast() {
+  const { done, goal } = weekProgress(workouts, settings);
+  return `Saved · ${done}/${goal} this week`;
+}
 
 // ---------- Cloud sync (Firebase) ----------
 let cloudUser = null;
