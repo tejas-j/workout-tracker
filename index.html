@@ -1,868 +1,214 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="day">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Training Log</title>
+<meta name="description" content="Time-boxed home workouts that fit your equipment, with logging, progress and sync.">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#4A5A6A">
+<meta name="theme-color" content="#F4F2EE">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Training">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
+<script>
+  // Apply the saved theme before first paint to avoid a flash.
+  (function () {
+    var pref = 'system';
+    try { pref = JSON.parse(localStorage.getItem('theme_v1')) || 'system'; } catch (e) {}
+    var night = pref === 'night' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = night ? 'night' : 'day';
+    document.querySelector('meta[name=theme-color]').content = night ? '#141517' : '#F4F2EE';
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --paper:#EDEAE2;
-    --paper-raised:#F6F4EE;
-    --ink:#2B2B26;
-    --ink-soft:#6b6a63;
-    --iron:#4A5A6A;
-    --iron-dark:#37434f;
-    --rust:#A65A3C;
-    --olive:#6B7A4F;
-    --line:#d8d4c8;
-    --radius:10px;
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:var(--paper);
-    color:var(--ink);
-    font-family:'Work Sans', sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  .wrap{max-width:640px;margin:0 auto;padding:28px 20px 80px;}
-  header.top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:22px;}
-  h1{
-    font-family:'Bitter', serif;
-    font-weight:700;
-    font-size:1.7rem;
-    margin:0;
-    letter-spacing:-0.01em;
-  }
-  .datetag{font-size:0.85rem;color:var(--ink-soft);}
-  nav.tabs{display:flex;gap:2px;background:var(--line);border-radius:var(--radius);padding:3px;margin-bottom:24px;}
-  nav.tabs button{
-    flex:1;border:none;background:transparent;padding:9px 0;font-family:'Work Sans';
-    font-size:0.85rem;font-weight:600;color:var(--ink-soft);border-radius:8px;cursor:pointer;
-    transition:background .15s, color .15s;
-  }
-  nav.tabs button.active{background:var(--paper-raised);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.08);}
-  section{display:none;}
-  section.active{display:block;}
-  .card{
-    background:var(--paper-raised);
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    padding:18px 18px;
-    margin-bottom:16px;
-  }
-  .card h2{
-    font-family:'Bitter';font-size:1.05rem;font-weight:700;margin:0 0 12px;
-    display:flex;align-items:center;gap:8px;
-  }
-  .eyebrow{
-    text-transform:uppercase;letter-spacing:0.08em;font-size:0.68rem;color:var(--ink-soft);font-weight:600;
-    margin-bottom:6px;display:block;
-  }
-  label{display:block;font-size:0.82rem;color:var(--ink-soft);margin-bottom:4px;font-weight:500;}
-  input[type=number], input[type=text], input[type=password], select, textarea{
-    width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;
-    background:#fff;font-family:'Work Sans';font-size:0.92rem;color:var(--ink);margin-bottom:12px;
-  }
-  input:focus, select:focus, textarea:focus{outline:2px solid var(--iron);outline-offset:1px;}
-  button.btn{
-    font-family:'Work Sans';font-weight:600;font-size:0.88rem;border:none;border-radius:8px;
-    padding:11px 18px;cursor:pointer;transition:filter .15s, transform .1s;
-  }
-  button.btn:active{transform:translateY(1px);}
-  .btn-primary{background:var(--iron);color:#fff;}
-  .btn-primary:hover{filter:brightness(1.08);}
-  .btn-accent{background:var(--rust);color:#fff;}
-  .btn-accent:hover{filter:brightness(1.08);}
-  .btn-ghost{background:transparent;color:var(--iron-dark);border:1px solid var(--line);}
-  .btn-ghost:hover{background:rgba(0,0,0,0.03);}
-  .btn-row{display:flex;gap:10px;flex-wrap:wrap;}
-  .exercise-row{
-    display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:end;margin-bottom:8px;
-  }
-  .exercise-row input{margin-bottom:0;}
-  .exercise-row .del{
-    background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:1.1rem;padding:0 4px;
-  }
-  .small-label{font-size:0.68rem;color:var(--ink-soft);margin-bottom:2px;}
-  .history-item{
-    border-bottom:1px solid var(--line);padding:14px 0;
-  }
-  .history-item:last-child{border-bottom:none;}
-  .history-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px;}
-  .history-date{font-weight:600;font-size:0.92rem;white-space:nowrap;}
-  .history-meta{font-size:0.78rem;color:var(--ink-soft);text-align:right;}
-  .plate-bar{display:flex;gap:2px;height:14px;margin:8px 0;align-items:flex-end;}
-  .plate{background:var(--iron);border-radius:2px;flex:1;min-width:3px;}
-  .ex-list{font-size:0.85rem;color:var(--ink-soft);line-height:1.5;}
-  .empty{
-    text-align:center;padding:30px 10px;color:var(--ink-soft);font-size:0.9rem;
-  }
-  .suggestion-box{
-    background:#fff;border:1px dashed var(--iron);border-radius:8px;padding:14px;margin-top:10px;
-  }
-  .suggestion-box h3{font-family:'Bitter';font-size:0.95rem;margin:0 0 8px;color:var(--iron-dark);}
-  .suggestion-ex{padding:6px 0;border-bottom:1px solid var(--line);font-size:0.88rem;}
-  .suggestion-ex:last-child{border-bottom:none;}
-  .suggestion-ex b{color:var(--ink);}
-  .settings-note{font-size:0.78rem;color:var(--ink-soft);line-height:1.5;margin-top:4px;}
-  .status{font-size:0.82rem;margin-top:8px;}
-  .status.err{color:var(--rust);}
-  .status.ok{color:var(--olive);}
-  .spinner{
-    display:inline-block;width:14px;height:14px;border:2px solid var(--line);
-    border-top-color:var(--iron);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;
-  }
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
-  .chip{
-    display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid var(--line);
-    border-radius:999px;background:#fff;font-size:0.84rem;cursor:pointer;user-select:none;
-  }
-  .chip.on{background:var(--iron);color:#fff;border-color:var(--iron);}
-  .chip .x{opacity:.7;font-size:1rem;line-height:1;}
-  .inline-row{display:flex;gap:8px;}
-  .inline-row input{margin-bottom:0;}
-  .src-tag{font-size:0.72rem;color:var(--ink-soft);margin:0 0 8px;}
-  .history-head .del-w{background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:0.8rem;margin-left:8px;}
-  .seg{display:flex;gap:2px;background:var(--line);border-radius:8px;padding:3px;margin-bottom:14px;}
-  .seg button{flex:1;border:none;background:transparent;padding:7px 0;font-family:'Work Sans';font-size:0.82rem;
-    font-weight:600;color:var(--ink-soft);border-radius:6px;cursor:pointer;}
-  .seg button.active{background:var(--paper-raised);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.08);}
-  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-  .activity-badge{display:inline-block;font-size:0.7rem;font-weight:600;color:#fff;background:var(--olive);
-    border-radius:4px;padding:1px 6px;margin-right:6px;vertical-align:1px;}
-  @keyframes spin{to{transform:rotate(360deg);}}
-  @media (prefers-reduced-motion:reduce){.spinner{animation:none;}}
-</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <h1>Training Log</h1>
-    <span class="datetag" id="todayTag"></span>
-  </header>
-
-  <nav class="tabs">
-    <button data-tab="today" class="active">Today</button>
-    <button data-tab="history">History</button>
-    <button data-tab="settings">Settings</button>
-  </nav>
+<div class="app">
 
   <!-- TODAY -->
-  <section id="tab-today" class="active">
-    <div class="card">
-      <h2>Get a suggestion</h2>
-      <label for="timeAvail">Minutes available today</label>
-      <input type="number" id="timeAvail" min="5" step="5" value="30">
-      <label for="regionSel">Focus</label>
-      <select id="regionSel"></select>
-      <div class="btn-row">
-        <button class="btn btn-accent" id="suggestBtn">Suggest a workout</button>
-      </div>
-      <div id="suggestStatus" class="status"></div>
+  <section class="screen active" id="screen-today" aria-labelledby="todayTitle">
+    <span class="label" id="todayTag"></span>
+    <h1 class="screen-title" id="todayTitle">Today</h1>
+
+    <div class="section card">
+      <span class="label">Get a workout</span>
+      <label class="field"><span>Minutes available</span>
+        <input type="number" id="timeAvail" min="5" step="5" value="30" inputmode="numeric"></label>
+      <label class="field"><span>Focus</span>
+        <select id="regionSel"></select></label>
+      <button class="btn btn-primary" id="suggestBtn">Suggest a workout</button>
+      <p id="suggestStatus" class="status note"></p>
       <div id="suggestionOutput"></div>
     </div>
 
-    <div class="card">
-      <h2>Log today's workout</h2>
-      <div class="seg" id="logMode">
-        <button data-mode="strength" class="active">Strength</button>
-        <button data-mode="activity">Activity / sport</button>
+    <div class="section card">
+      <span class="label">Log a workout</span>
+      <div class="seg" id="logMode" role="tablist">
+        <button data-mode="strength" class="on">Strength</button>
+        <button data-mode="activity">Activity or sport</button>
       </div>
-      <div id="strengthForm">
-        <label for="logDuration">Duration (minutes)</label>
-        <input type="number" id="logDuration" min="1" value="30">
-        <span class="eyebrow" style="margin-top:6px;">Exercises</span>
+      <div id="strengthForm" style="margin-top:14px">
+        <label class="field"><span>Duration (minutes)</span>
+          <input type="number" id="logDuration" min="1" value="30" inputmode="numeric"></label>
+        <span class="label">Exercises</span>
         <div id="exerciseRows"></div>
-        <div class="btn-row" style="margin-top:6px;">
-          <button class="btn btn-ghost" id="addExerciseBtn">+ Add exercise</button>
-        </div>
-        <div class="btn-row" style="margin-top:14px;">
-          <button class="btn btn-primary" id="saveLogBtn">Save workout</button>
-        </div>
+        <button class="btn btn-secondary" id="addExerciseBtn">+ Add exercise</button>
+        <button class="btn btn-primary" id="saveLogBtn" style="margin-top:10px">Save workout</button>
       </div>
-      <div id="activityForm" style="display:none;">
-        <label for="actName">Activity</label>
-        <input type="text" id="actName" list="activityList" placeholder="e.g. Outdoor walk, Pickleball">
+      <div id="activityForm" style="margin-top:14px" hidden>
+        <label class="field"><span>Activity</span>
+          <input type="text" id="actName" list="activityList" placeholder="e.g. Outdoor walk, Pickleball"></label>
         <datalist id="activityList"></datalist>
         <div class="two-col">
-          <div>
-            <label for="actDuration">Duration (minutes)</label>
-            <input type="number" id="actDuration" min="1" value="45">
-          </div>
-          <div>
-            <label for="actEffort">Effort</label>
-            <select id="actEffort">
-              <option value="">-</option><option>Easy</option><option selected>Moderate</option><option>Hard</option>
-            </select>
-          </div>
-          <div>
-            <label for="actDistance">Distance (optional)</label>
-            <input type="number" id="actDistance" min="0" step="0.1" placeholder="e.g. 2.5">
-          </div>
-          <div>
-            <label for="actDistUnit">Unit</label>
-            <select id="actDistUnit"><option>mi</option><option>km</option></select>
-          </div>
+          <label class="field"><span>Duration (minutes)</span>
+            <input type="number" id="actDuration" min="1" value="45" inputmode="numeric"></label>
+          <label class="field"><span>Effort</span>
+            <select id="actEffort"><option value="">-</option><option>Easy</option><option selected>Moderate</option><option>Hard</option></select></label>
+          <label class="field"><span>Distance (optional)</span>
+            <input type="number" id="actDistance" min="0" step="0.1" placeholder="e.g. 2.5" inputmode="decimal"></label>
+          <label class="field"><span>Unit</span>
+            <select id="actDistUnit"><option>mi</option><option>km</option></select></label>
         </div>
-        <label for="actNotes">Notes (optional)</label>
-        <input type="text" id="actNotes" placeholder="e.g. doubles, 3 games">
-        <div class="btn-row" style="margin-top:4px;">
-          <button class="btn btn-primary" id="saveActivityBtn">Save activity</button>
-        </div>
+        <label class="field"><span>Notes (optional)</span>
+          <input type="text" id="actNotes" placeholder="e.g. doubles, 3 games"></label>
+        <button class="btn btn-primary" id="saveActivityBtn">Save activity</button>
       </div>
-      <div id="saveStatus" class="status"></div>
+      <p id="saveStatus" class="status note"></p>
     </div>
   </section>
 
   <!-- HISTORY -->
-  <section id="tab-history">
-    <div class="card">
-      <h2>Past workouts</h2>
-      <div id="historyList"></div>
+  <section class="screen" id="screen-history" aria-labelledby="historyTitle">
+    <div class="screen-head">
+      <h1 class="screen-title" id="historyTitle">History</h1>
+      <button class="head-link" data-open="sheet-data">Export</button>
     </div>
+    <div class="stack" id="historyList"></div>
   </section>
 
   <!-- SETTINGS -->
-  <section id="tab-settings">
-    <div class="card">
-      <h2>Sync</h2>
-      <div id="syncOff">
-        <p class="settings-note" style="margin-top:0;">
-          Sign in with Google to sync your history and equipment across devices.
-          Without signing in, everything stays in this browser.
-        </p>
-        <div class="btn-row">
-          <button class="btn btn-primary" id="signInBtn" disabled>Sign in with Google</button>
-          <button class="btn btn-ghost" id="guestBtn" disabled>Continue as guest</button>
-        </div>
-        <p class="settings-note">
-          Guest mode backs up this device's data to the cloud without a Google account, but it
-          can't sync to other devices until you link Google.
-        </p>
+  <section class="screen" id="screen-settings" aria-labelledby="settingsTitle">
+    <div class="screen-head"><h1 class="screen-title" id="settingsTitle">Settings</h1></div>
+
+    <div class="section">
+      <span class="label" id="themeLabel">Theme</span>
+      <div class="seg" id="themeSeg" role="radiogroup" aria-labelledby="themeLabel">
+        <button data-v="day" role="radio">Day</button>
+        <button data-v="night" role="radio">Night</button>
+        <button data-v="system" role="radio">Match system</button>
       </div>
-      <div id="syncOn" style="display:none;">
-        <p class="settings-note" style="margin-top:0;" id="syncWho"></p>
-        <div class="btn-row">
-          <button class="btn btn-primary" id="syncNowBtn">Sync now</button>
-          <button class="btn btn-accent" id="linkGoogleBtn" style="display:none;">Link Google account</button>
-          <button class="btn btn-ghost" id="signOutBtn">Sign out</button>
-        </div>
-      </div>
-      <div id="syncStatus" class="status"></div>
     </div>
-    <div class="card">
-      <h2>Anthropic API key (optional)</h2>
-      <label for="apiKey">Key (used only in this browser)</label>
-      <input type="password" id="apiKey" placeholder="sk-ant-...">
-      <button class="btn btn-primary" id="saveKeyBtn">Save key</button>
-      <p class="settings-note">
-        Optional. With a key, suggestions come from Claude Haiku using your equipment, focus and recent history.
-        AI suggestions are also available without a key, with a daily limit (higher when signed in with Google).
-        Without one, the app builds a workout from its built-in library. The key stays in this browser's local
-        storage and is sent only to Anthropic. Use your own key, and don't paste one on a shared device.
-      </p>
-    </div>
-    <div class="card">
-      <h2>Equipment</h2>
-      <div class="chips" id="equipChips"></div>
-      <label for="customEquip">Add other equipment (e.g. "Adjustable dumbbells 5-50 lb")</label>
-      <div class="inline-row">
-        <input type="text" id="customEquip" placeholder="Equipment name">
-        <button class="btn btn-ghost" id="addEquipBtn">Add</button>
+
+    <div class="section">
+      <span class="label">Account &amp; data</span>
+      <div class="list">
+        <button class="row" data-open="sheet-sync">
+          <div><div class="row-title" id="syncRowTitle">Not signed in</div><div class="row-sub" id="syncRowSub">Data stays in this browser</div></div>
+          <span class="row-value" id="syncRowValue">Sign in ›</span>
+        </button>
+        <button class="row" data-open="sheet-equipment">
+          <div><div class="row-title">Equipment</div><div class="row-sub" id="equipRowSub"></div></div>
+          <span class="row-value" id="equipRowValue"></span>
+        </button>
+        <button class="row" data-open="sheet-data">
+          <div><div class="row-title">Export &amp; import</div><div class="row-sub">JSON backup, CSV, or a summary for AI</div></div>
+          <span class="row-value">›</span>
+        </button>
       </div>
-      <p class="settings-note">
-        Bodyweight is always available. The built-in library uses the preset items above;
-        custom items are only passed to the AI when you have a key saved.
-      </p>
     </div>
-    <div class="card">
-      <h2>Backup &amp; restore</h2>
-      <p class="settings-note" style="margin-top:0;">
-        Your history lives only in this browser. Download a backup file to move it to another device
-        or keep a copy, and import it elsewhere. Importing merges with what's already here.
-      </p>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="exportBtn">Download backup</button>
-        <button class="btn btn-ghost" id="importBtn">Import backup</button>
+
+    <div class="section">
+      <span class="label">About</span>
+      <div class="list">
+        <a class="row" href="https://github.com/tejas-j/workout-tracker" target="_blank" rel="noopener">
+          <div><div class="row-title">Source on GitHub</div><div class="row-sub">Vanilla JS PWA · Firebase sync · Gemini via a Cloudflare Worker</div></div>
+          <span class="row-value">↗</span>
+        </a>
       </div>
-      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
-      <div id="backupStatus" class="status"></div>
     </div>
   </section>
 </div>
 
+<nav class="tabbar" aria-label="Main">
+  <div class="tabbar-inner">
+    <button data-tab="today" class="active">Today</button>
+    <button data-tab="history">History</button>
+    <button data-tab="settings">Settings</button>
+  </div>
+</nav>
+
+<!-- Bottom sheets -->
+<div class="sheet-host" id="sheetHost" hidden>
+  <div class="scrim" data-close></div>
+
+  <div class="sheet" id="sheet-sync" role="dialog" aria-modal="true" aria-labelledby="syncTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="syncTitle">Sync</h2><button class="sheet-close" data-close>Done</button></div>
+    <div id="syncOff">
+      <p class="note" style="margin:0 0 12px">Sign in with Google to sync your history and settings across devices. Without signing in, everything stays in this browser.</p>
+      <div class="stack">
+        <button class="btn btn-primary" id="signInBtn" disabled>Sign in with Google</button>
+        <button class="btn btn-secondary" id="guestBtn" disabled>Continue as guest</button>
+      </div>
+      <p class="note">Guest mode backs up this device to the cloud without a Google account, but can't sync to other devices until you link Google.</p>
+    </div>
+    <div id="syncOn" hidden>
+      <p class="note" style="margin:0 0 12px" id="syncWho"></p>
+      <div class="stack">
+        <button class="btn btn-primary" id="syncNowBtn">Sync now</button>
+        <button class="btn btn-secondary" id="linkGoogleBtn" hidden>Link Google account</button>
+        <button class="btn btn-secondary" id="signOutBtn">Sign out</button>
+      </div>
+    </div>
+    <p id="syncStatus" class="status"></p>
+  </div>
+
+  <div class="sheet" id="sheet-equipment" role="dialog" aria-modal="true" aria-labelledby="equipTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="equipTitle">Equipment</h2><button class="sheet-close" data-close>Done</button></div>
+    <div class="chips" id="equipChips"></div>
+    <div>
+      <label class="field" style="margin:0"><span>Add other equipment</span>
+        <div class="inline-row">
+          <input type="text" id="customEquip" placeholder="e.g. Adjustable dumbbells 5–50 lb">
+          <button class="btn btn-secondary btn-small" id="addEquipBtn">Add</button>
+        </div>
+      </label>
+      <p class="note">Bodyweight is always available. The built-in library uses the preset items; custom items are passed to the AI.</p>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet-data" role="dialog" aria-modal="true" aria-labelledby="dataTitle" hidden>
+    <div class="sheet-head"><h2 class="sheet-title" id="dataTitle">Export &amp; import</h2><button class="sheet-close" data-close>Done</button></div>
+    <div class="list">
+      <button class="row" id="exportJsonBtn">
+        <div><div class="row-title">Download backup</div><div class="row-sub">Everything, as JSON. Import it on any device.</div></div>
+        <span class="row-value">JSON</span>
+      </button>
+      <button class="row" id="exportCsvBtn">
+        <div><div class="row-title">Export spreadsheet</div><div class="row-sub">One row per exercise, for Sheets or Excel</div></div>
+        <span class="row-value">CSV</span>
+      </button>
+      <button class="row" id="copyAiBtn">
+        <div><div class="row-title">Copy for AI</div><div class="row-sub">A text summary and prompt to paste into any chatbot</div></div>
+        <span class="row-value">Copy</span>
+      </button>
+      <button class="row" id="importBtn">
+        <div><div class="row-title">Import backup</div><div class="row-sub">Merges with what's here; nothing is overwritten</div></div>
+        <span class="row-value">JSON</span>
+      </button>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+    <textarea id="aiText" readonly hidden aria-label="Summary for AI"></textarea>
+    <p id="backupStatus" class="status"></p>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
 <script src="exercises.js"></script>
 <script type="module" src="firebase-sync.js"></script>
-<script>
-const STORAGE_KEY = 'workoutLog_v1';
-const API_KEY_STORAGE = 'anthropicApiKey_v1';
-const EQUIPMENT_STORAGE = 'equipment_v1';
-const REGION_STORAGE = 'region_v1';
-const EQUIP_UPDATED_STORAGE = 'equipmentUpdated_v1';
-const SYNCED_STORAGE = 'syncedIds_v1';
-const MODEL = 'claude-haiku-4-5';
-// AI proxy (worker/), backed by Gemini. Available to everyone with daily limits
-// enforced by the Worker; signed-in Google users get higher limits. Empty = disabled.
-const AI_PROXY_URL = 'https://workout-ai.tejjammy.workers.dev';
-// JSON shape the proxy asks Gemini to return for a workout suggestion.
-const WORKOUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    focus: { type: 'string' },
-    exercises: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' }, sets: { type: 'integer' }, reps: { type: 'integer' },
-          weight: { type: 'number' }, unit: { type: 'string', enum: ['reps', 'sec', 'min'] }
-        },
-        required: ['name', 'sets', 'reps', 'weight', 'unit']
-      }
-    }
-  },
-  required: ['focus', 'exercises']
-};
-
-// ---------- Helpers ----------
-const $ = id => document.getElementById(id);
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-function load(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
-}
-function save(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-}
-function setStatus(elId, text, kind) {
-  const el = $(elId);
-  el.textContent = text;
-  el.className = 'status ' + (kind || '');
-  if (kind === 'ok') setTimeout(() => { el.textContent = ''; }, 2500);
-}
-function fmtReps(e) { return e.unit === 'sec' ? `${e.reps}s` : e.unit === 'min' ? `${e.reps} min` : `${e.reps}`; }
-
-// ---------- State ----------
-let workouts = load(STORAGE_KEY, []);
-let equipment = load(EQUIPMENT_STORAGE, ['Dumbbells', 'Bench']);
-let exerciseRowCount = 0;
-let currentRegion = 'full';
-
-// ---------- Tabs ----------
-document.querySelectorAll('nav.tabs button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
-    btn.classList.add('active');
-    $('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'history') renderHistory();
-  });
-});
-$('todayTag').textContent = new Date().toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'});
-
-// ---------- Region picker ----------
-$('regionSel').innerHTML = Object.entries(REGIONS).map(([k, r]) => `<option value="${k}">${esc(r.label)}</option>`).join('');
-try { const r = localStorage.getItem(REGION_STORAGE); if (REGIONS[r]) currentRegion = r; } catch {}
-$('regionSel').value = currentRegion;
-$('regionSel').addEventListener('change', e => {
-  currentRegion = e.target.value;
-  try { localStorage.setItem(REGION_STORAGE, currentRegion); } catch {}
-});
-
-// ---------- Equipment ----------
-function persistEquipment() {
-  save(EQUIPMENT_STORAGE, equipment);
-  save(EQUIP_UPDATED_STORAGE, Date.now());
-  cloudCall(() => cloud.saveProfile({ equipment, updatedAt: load(EQUIP_UPDATED_STORAGE, 0) }));
-}
-function renderEquipment() {
-  const custom = equipment.filter(e => !EQUIPMENT_PRESETS.includes(e));
-  $('equipChips').innerHTML =
-    EQUIPMENT_PRESETS.map(p => `<span class="chip ${equipment.includes(p) ? 'on' : ''}" data-preset="${esc(p)}">${esc(p)}</span>`).join('') +
-    custom.map(c => `<span class="chip on" data-custom="${esc(c)}">${esc(c)} <span class="x">×</span></span>`).join('');
-}
-$('equipChips').addEventListener('click', e => {
-  const chip = e.target.closest('.chip');
-  if (!chip) return;
-  if (chip.dataset.preset) {
-    const p = chip.dataset.preset;
-    equipment = equipment.includes(p) ? equipment.filter(x => x !== p) : [...equipment, p];
-  } else if (chip.dataset.custom) {
-    equipment = equipment.filter(x => x !== chip.dataset.custom);
-  }
-  persistEquipment();
-  renderEquipment();
-});
-function addCustomEquipment() {
-  const v = $('customEquip').value.trim();
-  if (!v) return;
-  if (!equipment.some(x => x.toLowerCase() === v.toLowerCase())) equipment.push(v);
-  $('customEquip').value = '';
-  persistEquipment();
-  renderEquipment();
-}
-$('addEquipBtn').addEventListener('click', addCustomEquipment);
-$('customEquip').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomEquipment(); });
-renderEquipment();
-
-// ---------- Exercise row builder ----------
-function addExerciseRow(prefill) {
-  exerciseRowCount++;
-  const id = 'ex-' + exerciseRowCount;
-  const row = document.createElement('div');
-  row.className = 'exercise-row';
-  row.id = id;
-  if (prefill?.unit) row.dataset.unit = prefill.unit;
-  row.innerHTML = `
-    <div>
-      <div class="small-label">Exercise</div>
-      <input type="text" class="ex-name" value="${esc(prefill?.name)}" placeholder="e.g. Dumbbell bench press">
-    </div>
-    <div style="width:64px;">
-      <div class="small-label">Sets</div>
-      <input type="number" class="ex-sets" min="1" value="${esc(prefill?.sets || 3)}">
-    </div>
-    <div style="width:64px;">
-      <div class="small-label">${prefill?.unit === 'sec' ? 'Secs' : prefill?.unit === 'min' ? 'Mins' : 'Reps'}</div>
-      <input type="number" class="ex-reps" min="1" value="${esc(prefill?.reps || 10)}">
-    </div>
-    <div style="width:74px;">
-      <div class="small-label">Weight (lb)</div>
-      <input type="number" class="ex-weight" min="0" value="${esc(prefill?.weight ?? 20)}">
-    </div>
-    <button class="del" title="Remove">×</button>
-  `;
-  row.querySelector('.del').addEventListener('click', () => row.remove());
-  $('exerciseRows').appendChild(row);
-}
-function resetExerciseRows(list) {
-  $('exerciseRows').innerHTML = '';
-  exerciseRowCount = 0;
-  if (list && list.length) list.forEach(addExerciseRow); else addExerciseRow();
-}
-$('addExerciseBtn').addEventListener('click', () => addExerciseRow());
-addExerciseRow();
-
-// ---------- Save workout ----------
-$('saveLogBtn').addEventListener('click', () => {
-  const duration = parseInt($('logDuration').value) || 0;
-  const exercises = [];
-  document.querySelectorAll('#exerciseRows .exercise-row').forEach(r => {
-    const name = r.querySelector('.ex-name').value.trim();
-    if (!name) return;
-    const ex = {
-      name,
-      sets: parseInt(r.querySelector('.ex-sets').value) || 0,
-      reps: parseInt(r.querySelector('.ex-reps').value) || 0,
-      weight: parseFloat(r.querySelector('.ex-weight').value) || 0
-    };
-    if (r.dataset.unit) ex.unit = r.dataset.unit;
-    exercises.push(ex);
-  });
-  if (exercises.length === 0) {
-    setStatus('saveStatus', 'Add at least one exercise before saving.', 'err');
-    return;
-  }
-  const entry = { id: Date.now(), date: new Date().toISOString(), duration, region: currentRegion, exercises };
-  workouts.unshift(entry);
-  save(STORAGE_KEY, workouts);
-  cloudCall(() => cloud.saveWorkout(entry));
-  setStatus('saveStatus', 'Saved.', 'ok');
-  resetExerciseRows();
-});
-
-// ---------- Log mode + activity logging ----------
-function setLogMode(mode) {
-  document.querySelectorAll('#logMode button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  $('strengthForm').style.display = mode === 'strength' ? 'block' : 'none';
-  $('activityForm').style.display = mode === 'activity' ? 'block' : 'none';
-}
-document.querySelectorAll('#logMode button').forEach(b => b.addEventListener('click', () => setLogMode(b.dataset.mode)));
-$('activityList').innerHTML = ACTIVITIES.map(a => `<option value="${esc(a)}">`).join('');
-
-$('saveActivityBtn').addEventListener('click', () => {
-  const activity = $('actName').value.trim();
-  const duration = parseInt($('actDuration').value) || 0;
-  if (!activity || duration <= 0) {
-    setStatus('saveStatus', 'Enter an activity and a duration.', 'err');
-    return;
-  }
-  const entry = { id: Date.now(), date: new Date().toISOString(), type: 'activity', activity, duration, exercises: [] };
-  const distance = parseFloat($('actDistance').value);
-  if (distance > 0) { entry.distance = distance; entry.distanceUnit = $('actDistUnit').value; }
-  if ($('actEffort').value) entry.effort = $('actEffort').value;
-  const notes = $('actNotes').value.trim();
-  if (notes) entry.notes = notes;
-  workouts.unshift(entry);
-  save(STORAGE_KEY, workouts);
-  cloudCall(() => cloud.saveWorkout(entry));
-  setStatus('saveStatus', 'Saved.', 'ok');
-  $('actName').value = ''; $('actDistance').value = ''; $('actNotes').value = '';
-});
-
-// ---------- History ----------
-function totalVolume(w) {
-  return w.exercises.reduce((sum, e) => sum + (e.unit ? 0 : e.sets * e.reps * (e.weight || 1)), 0);
-}
-function renderHistory() {
-  const list = $('historyList');
-  if (workouts.length === 0) {
-    list.innerHTML = '<div class="empty">No workouts logged yet. Log one from the Today tab.</div>';
-    return;
-  }
-  const maxVolume = Math.max(...workouts.filter(w => w.type !== 'activity').map(totalVolume), 1);
-  list.innerHTML = workouts.map(w => {
-    const dateStr = new Date(w.date).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
-    const delBtn = `<button class="del-w" data-id="${esc(w.id)}" title="Delete">Delete</button>`;
-    if (w.type === 'activity') {
-      const meta = [`${esc(w.duration)} min`, w.effort && esc(w.effort), w.distance && `${esc(w.distance)} ${esc(w.distanceUnit || 'mi')}`]
-        .filter(Boolean).join(' · ');
-      return `
-      <div class="history-item">
-        <div class="history-head">
-          <span class="history-date">${dateStr}</span>
-          <span class="history-meta">${meta} ${delBtn}</span>
-        </div>
-        <div class="ex-list"><span class="activity-badge">Activity</span><b>${esc(w.activity)}</b>${w.notes ? ' — ' + esc(w.notes) : ''}</div>
-      </div>`;
-    }
-    const vol = totalVolume(w);
-    const plateCount = Math.max(1, Math.round((vol / maxVolume) * 12));
-    const plates = Array.from({length: 12}, (_, i) =>
-      `<div class="plate" style="height:${i < plateCount ? (30 + i*4) : 4}%; opacity:${i < plateCount ? 1 : 0.15}"></div>`
-    ).join('');
-    const exList = w.exercises.map(e =>
-      `${esc(e.name)} — ${esc(e.sets)}×${esc(fmtReps(e))}${e.weight ? ' @ ' + esc(e.weight) + 'lb' : ''}`).join('<br>');
-    const region = REGIONS[w.region] ? ` · ${esc(REGIONS[w.region].label)}` : '';
-    return `
-      <div class="history-item">
-        <div class="history-head">
-          <span class="history-date">${dateStr}</span>
-          <span class="history-meta">${esc(w.duration)} min${region}${vol ? ` · ${Math.round(vol).toLocaleString()} lb moved` : ''} ${delBtn}</span>
-        </div>
-        <div class="plate-bar">${plates}</div>
-        <div class="ex-list">${exList}</div>
-      </div>`;
-  }).join('');
-}
-$('historyList').addEventListener('click', e => {
-  const btn = e.target.closest('.del-w');
-  if (!btn || !confirm('Delete this workout from history?')) return;
-  workouts = workouts.filter(w => String(w.id) !== btn.dataset.id);
-  save(STORAGE_KEY, workouts);
-  cloudCall(() => cloud.removeWorkout(btn.dataset.id));
-  renderHistory();
-});
-
-// ---------- Backup / restore ----------
-$('exportBtn').addEventListener('click', () => {
-  const data = { app: 'training-log', version: 1, exportedAt: new Date().toISOString(), workouts, equipment };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `training-log-${new Date().toISOString().slice(0, 10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  setStatus('backupStatus', `Backed up ${workouts.length} workouts.`, 'ok');
-});
-$('importBtn').addEventListener('click', () => $('importFile').click());
-$('importFile').addEventListener('change', async e => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    if (data.app !== 'training-log' || !Array.isArray(data.workouts)) throw new Error('Not a Training Log backup file.');
-    const valid = data.workouts.filter(w => w && w.id != null && w.date && Array.isArray(w.exercises));
-    const have = new Set(workouts.map(w => String(w.id)));
-    const fresh = valid.filter(w => !have.has(String(w.id)));
-    if (!confirm(`Import ${fresh.length} new workouts (${valid.length - fresh.length} already here)?`)) return;
-    workouts = [...workouts, ...fresh].sort((a, b) => new Date(b.date) - new Date(a.date));
-    if (Array.isArray(data.equipment)) {
-      for (const item of data.equipment.filter(x => typeof x === 'string')) {
-        if (!equipment.some(x => x.toLowerCase() === item.toLowerCase())) equipment.push(item);
-      }
-      persistEquipment();
-      renderEquipment();
-    }
-    save(STORAGE_KEY, workouts);
-    cloudCall(() => cloud.saveWorkouts(fresh));
-    setStatus('backupStatus', `Imported ${fresh.length} workouts.`, 'ok');
-  } catch (err) {
-    setStatus('backupStatus', 'Import failed: ' + err.message, 'err');
-  }
-});
-
-// ---------- Settings: API key ----------
-$('apiKey').value = localStorage.getItem(API_KEY_STORAGE) || '';
-$('saveKeyBtn').addEventListener('click', () => {
-  localStorage.setItem(API_KEY_STORAGE, $('apiKey').value.trim());
-  const btn = $('saveKeyBtn');
-  const original = btn.textContent;
-  btn.textContent = 'Saved';
-  setTimeout(() => btn.textContent = original, 1500);
-});
-
-// ---------- Suggestions ----------
-function lastDoneMap() {
-  const map = {};
-  for (const w of workouts) {
-    const t = new Date(w.date).getTime();
-    for (const e of w.exercises) if (!(map[e.name] > t)) map[e.name] = t;
-  }
-  return map;
-}
-function lastWeights() {
-  const map = {};
-  for (const w of workouts) for (const e of w.exercises) if (!(e.name in map) && e.weight) map[e.name] = e.weight;
-  return map;
-}
-
-// via: { key } to call Anthropic with the user's own key, or { proxy: true } for the shared proxy.
-async function aiSuggestion(via, minutes) {
-  const regionLabel = REGIONS[currentRegion].label;
-  const recent = workouts.slice(0, 7).map(w => w.type === 'activity'
-    ? { date: String(w.date).slice(0, 10), activity: `${w.activity} ${w.duration}min${w.effort ? ' ' + w.effort : ''}` }
-    : { date: String(w.date).slice(0, 10),
-        exercises: w.exercises.map(e => `${e.name} ${e.sets}x${fmtReps(e)}${e.weight ? '@' + e.weight + 'lb' : ''}`) });
-  const systemPrompt = `You suggest a single home strength workout. Use ONLY the equipment listed by the user (plus bodyweight). Respond with ONLY valid JSON, no markdown fences, no preamble, matching exactly this shape:
-{"focus": "short label like 'Upper body push'", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec" or "min"}]}
-Use unit "sec" (reps = seconds per set) for holds and timed intervals, and "min" (reps = minutes) for steady cardio blocks. Weight is in lb, 0 for bodyweight. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. History may include sports or cardio activities; account for their fatigue (e.g. go easier on legs after a long hike). Vary exercises and avoid repeating the same movements as recent history when possible.`;
-  const userPrompt = `Minutes available: ${minutes}.
-Focus: ${regionLabel}.
-Equipment: ${equipment.length ? equipment.join(', ') : 'none'}.
-Recent workout history (most recent first): ${recent.length ? JSON.stringify(recent) : 'none logged yet'}.
-Suggest today's workout.`;
-
-  let text, remaining;
-  if (via.proxy) {
-    // Signed-in Google users send their ID token for the higher limit; everyone else goes without.
-    const call = async forceRefresh => {
-      const headers = { 'Content-Type': 'application/json' };
-      if (cloudUser && !cloudUser.isAnonymous && window.cloud) headers.Authorization = 'Bearer ' + await cloud.getIdToken(forceRefresh);
-      return fetch(AI_PROXY_URL, {
-        method: 'POST', headers,
-        body: JSON.stringify({ system: systemPrompt, prompt: userPrompt, schema: WORKOUT_SCHEMA })
-      });
-    };
-    let response = await call(false);
-    if (response.status === 401) response = await call(true);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(data.error || `AI error ${response.status}`), { status: response.status });
-    text = data.text || '';
-    remaining = data.remaining;
-  } else {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': via.key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({ model: MODEL, max_tokens: 1024, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
-    });
-    if (!response.ok) throw new Error(`API error ${response.status}: ${(await response.text()).slice(0, 200)}`);
-    const data = await response.json();
-    if (data.stop_reason === 'refusal') throw new Error('Request was declined');
-    text = data.content.map(b => b.text || '').join('');
-  }
-  const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
-  if (!Array.isArray(parsed.exercises) || !parsed.exercises.length) throw new Error('No exercises in response.');
-  return {
-    remaining,
-    focus: String(parsed.focus || regionLabel),
-    exercises: parsed.exercises.map(e => ({
-      name: String(e.name || 'Exercise'),
-      sets: Math.max(1, Math.round(Number(e.sets)) || 3),
-      reps: Math.max(1, Math.round(Number(e.reps)) || 10),
-      weight: Math.max(0, Number(e.weight) || 0),
-      ...(e.unit === 'sec' || e.unit === 'min' ? { unit: e.unit } : {})
-    }))
-  };
-}
-
-function libraryWorkout(minutes) {
-  const w = buildLibraryWorkout({ minutes, region: currentRegion, equipment, lastDone: lastDoneMap() });
-  const weights = lastWeights();
-  w.exercises.forEach(e => { if (weights[e.name]) e.weight = weights[e.name]; });
-  return w;
-}
-
-$('suggestBtn').addEventListener('click', async () => {
-  const key = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
-  const minutes = parseInt($('timeAvail').value) || 30;
-  $('suggestionOutput').innerHTML = '';
-  let suggestion, source = 'From the built-in library', note = '';
-
-  // Own key wins; otherwise the shared proxy for signed-in Google users; otherwise the library.
-  const via = key ? { key } : AI_PROXY_URL ? { proxy: true } : null;
-  let noteKind = 'err';
-  if (via) {
-    setStatus('suggestStatus', '', '');
-    $('suggestStatus').innerHTML = '<span class="spinner"></span> Thinking...';
-    try {
-      suggestion = await aiSuggestion(via, minutes);
-      source = via.key ? 'AI suggestion (your key)'
-        : 'AI suggestion' + (Number.isFinite(suggestion.remaining) ? ` · ${suggestion.remaining} left today` : '');
-    } catch (err) {
-      if (err.status === 429) { note = 'You\'ve used today\'s AI suggestions, so here is a library workout.'; noteKind = ''; }
-      else note = 'AI suggestion failed (' + err.message + '). Showing a library workout instead.';
-    }
-  }
-  if (!suggestion) suggestion = libraryWorkout(minutes);
-  setStatus('suggestStatus', note, note ? noteKind : '');
-
-  if (!suggestion.exercises.length) {
-    $('suggestionOutput').innerHTML = '<div class="empty">No exercises fit that time and equipment. Try more minutes or add equipment in Settings.</div>';
-    return;
-  }
-  $('suggestionOutput').innerHTML = `
-    <div class="suggestion-box">
-      <h3>${esc(suggestion.focus)}</h3>
-      <p class="src-tag">${esc(source)}${suggestion.estimatedMinutes ? ` · about ${suggestion.estimatedMinutes} min` : ''}</p>
-      ${suggestion.exercises.map(e => `
-        <div class="suggestion-ex"><b>${esc(e.name)}</b> — ${esc(e.sets)} set${e.sets == 1 ? '' : 's'} × ${esc(fmtAmount(e))}${e.weight ? ' @ ' + esc(e.weight) + ' lb' : ''}</div>`).join('')}
-      <div class="btn-row" style="margin-top:12px;">
-        <button class="btn btn-primary" id="useSuggestionBtn">Use this — fill log form</button>
-      </div>
-    </div>`;
-  $('useSuggestionBtn').addEventListener('click', () => {
-    setLogMode('strength');
-    resetExerciseRows(suggestion.exercises);
-    $('logDuration').value = minutes;
-    window.scrollTo({top: $('exerciseRows').offsetTop - 20, behavior: 'smooth'});
-  });
-});
-
-// ---------- Cloud sync (Firebase) ----------
-let cloudUser = null;
-let syncing = false;
-let lastSync = 0;
-
-// Fire-and-forget cloud write; local data is always saved first.
-function cloudCall(fn) {
-  if (!cloudUser || !window.cloud) return;
-  Promise.resolve().then(fn).catch(err => setStatus('syncStatus', 'Sync error: ' + syncMessage(err), 'err'));
-}
-function syncMessage(err) {
-  return err?.code === 'permission-denied'
-    ? 'permission denied. Check the Firestore rules allow this account.'
-    : err?.code === 'auth/admin-restricted-operation' || err?.code === 'auth/operation-not-allowed'
-    ? 'this sign-in method is not enabled in Firebase.'
-    : (err?.message || String(err));
-}
-function renderSyncUI() {
-  $('syncOff').style.display = cloudUser ? 'none' : 'block';
-  $('syncOn').style.display = cloudUser ? 'block' : 'none';
-  const guest = cloudUser?.isAnonymous;
-  $('syncWho').innerHTML = !cloudUser ? ''
-    : guest ? '<b>Guest</b>: backed up for this device only. Link Google to sync across devices and keep access if this browser is cleared.'
-    : `Signed in as <b>${esc(cloudUser.email || 'Google user')}</b>.`;
-  $('linkGoogleBtn').style.display = guest ? '' : 'none';
-}
-
-async function syncNow() {
-  if (!cloudUser || syncing) return;
-  syncing = true;
-  $('syncStatus').className = 'status';
-  $('syncStatus').innerHTML = '<span class="spinner"></span> Syncing...';
-  try {
-    const cloudList = (await cloud.fetchWorkouts()).filter(w => w && w.id != null && w.date && Array.isArray(w.exercises));
-    const cloudIds = new Set(cloudList.map(w => String(w.id)));
-    const meta = load(SYNCED_STORAGE, {});
-    // ids this account has synced before: if one is gone from the cloud it was deleted on another device
-    const prev = new Set(meta.uid === cloudUser.uid ? meta.ids : []);
-
-    const keep = [], toPush = [];
-    for (const w of workouts) {
-      const id = String(w.id);
-      if (cloudIds.has(id)) keep.push(w);
-      else if (!prev.has(id)) { keep.push(w); toPush.push(w); }
-    }
-    const keepIds = new Set(keep.map(w => String(w.id)));
-    const added = cloudList.filter(w => !keepIds.has(String(w.id)));
-    workouts = [...keep, ...added].sort((a, b) => new Date(b.date) - new Date(a.date));
-    if (toPush.length) await cloud.saveWorkouts(toPush);
-
-    // equipment: newest edit wins
-    const profile = await cloud.fetchProfile();
-    const localUpdated = load(EQUIP_UPDATED_STORAGE, 0);
-    if (profile && Array.isArray(profile.equipment) && (profile.updatedAt || 0) > localUpdated) {
-      equipment = profile.equipment.filter(x => typeof x === 'string');
-      save(EQUIPMENT_STORAGE, equipment);
-      save(EQUIP_UPDATED_STORAGE, profile.updatedAt);
-    } else if (!profile || localUpdated > (profile.updatedAt || 0)) {
-      await cloud.saveProfile({ equipment, updatedAt: localUpdated });
-    }
-
-    save(STORAGE_KEY, workouts);
-    save(SYNCED_STORAGE, { uid: cloudUser.uid, ids: workouts.map(w => String(w.id)) });
-    renderEquipment();
-    renderHistory();
-    lastSync = Date.now();
-    setStatus('syncStatus', `Synced ${workouts.length} workouts.`, 'ok');
-  } catch (err) {
-    setStatus('syncStatus', 'Sync failed: ' + syncMessage(err), 'err');
-  } finally {
-    syncing = false;
-  }
-}
-
-function initCloud() {
-  $('signInBtn').disabled = false;
-  $('guestBtn').disabled = false;
-  $('guestBtn').addEventListener('click', () =>
-    cloud.signInGuest().catch(err => setStatus('syncStatus', 'Guest sign-in failed: ' + syncMessage(err), 'err')));
-  $('linkGoogleBtn').addEventListener('click', async () => {
-    try {
-      await cloud.linkGoogle();
-      cloudUser = cloud.user;
-      renderSyncUI();
-      syncNow();
-    } catch (err) {
-      setStatus('syncStatus', 'Linking failed: ' + syncMessage(err), 'err');
-    }
-  });
-  $('signInBtn').addEventListener('click', () =>
-    cloud.signIn().catch(err => setStatus('syncStatus', 'Sign-in failed: ' + syncMessage(err), 'err')));
-  $('signOutBtn').addEventListener('click', () => {
-    if (cloudUser?.isAnonymous && !confirm('Signing out of a guest account loses access to its cloud backup (data on this device stays). Continue?')) return;
-    cloud.signOut();
-  });
-  $('syncNowBtn').addEventListener('click', syncNow);
-  cloud.onAuthChange(user => {
-    cloudUser = user;
-    renderSyncUI();
-    if (user) syncNow();
-  });
-  // pick up changes from other devices when the app comes back to the foreground
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && cloudUser && Date.now() - lastSync > 30000) syncNow();
-  });
-}
-if (window.cloud) initCloud();
-window.addEventListener('cloud-ready', initCloud, { once: true });
-window.addEventListener('cloud-failed', () => {
-  $('signInBtn').textContent = 'Sync unavailable (offline?)';
-}, { once: true });
-renderSyncUI();
-
-// ---------- PWA ----------
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
-}
-</script>
+<script src="app.js"></script>
 </body>
 </html>
