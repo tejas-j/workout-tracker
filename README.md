@@ -44,7 +44,7 @@ See [docs/architecture.md](docs/architecture.md) for a diagram and an overview o
 | Layer | Implementation |
 |---|---|
 | UI | Single-page vanilla HTML/CSS/JS, no build step or framework |
-| Planning | Greedy time-budget packer over a curated library (`exercises.js`), rotating across muscle groups and ranked by how recently each exercise was done |
+| Planning | `planner.js` turns the minutes and focus into a time budget (warm-up, exercise count, sets), builds library plans and fits AI plans to it. The AI picks from a shortlist of library exercises; the app has the final say on sets and length |
 | Stats | Pure functions in `stats.js` (weeks, goal history, streak, volume, lift trends, PRs), unit tested in Node |
 | Live workout | Session state saved on every change; the rest timer derives from a timestamp, plus Web Audio, Vibration and Screen Wake Lock APIs |
 | Storage | `localStorage` is the source of truth on each device |
@@ -65,6 +65,7 @@ settings use last-write-wins. The theme is per device.
 index.html            Markup for the screens, sheets and tab bar
 styles.css            Design tokens (Day/Night themes) and components
 app.js                State, Today plan, live workout, progress, history, export and sync logic
+planner.js            Time budgets, library plans, fitting AI plans to the time, AI prompts
 stats.js              Derived stats: weeks, goal and streak, volume, lift trends, PRs
 exercises.js          Exercise library, focus areas, equipment and the workout builder
 firebase-sync.js      Firebase Auth + Firestore wrapper, loaded as an ES module
@@ -74,7 +75,7 @@ firestore.rules       Firestore security rules
 icons/                App icons
 docs/design/          Design spec and build plan for the redesign
 docs/screenshots/     README images
-tests/                Unit tests for stats.js
+tests/                Unit tests for stats.js and planner.js
 worker/               Cloudflare Worker AI proxy (see worker/README.md)
 CLAUDE.md             Project notes for AI coding assistants
 ```
@@ -93,6 +94,7 @@ Tests:
 
 ```bash
 node tests/stats.test.js       # stats
+node tests/planner.test.js     # planning and AI prompts
 cd worker && npm test          # AI proxy
 ```
 

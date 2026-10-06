@@ -7,7 +7,8 @@ A mobile-first workout planner and tracker PWA (train.tejasrj.io). Vanilla HTML/
 - `styles.css`: design tokens (Day/Night) and components.
 - `app.js`: state, UI, logging, history, suggestions and sync glue.
 - `stats.js`: pure functions for weeks, goal and streak, volume, lift trends and PRs.
-- `exercises.js`: exercise library, `REGIONS`, `EQUIPMENT_PRESETS`, `ACTIVITIES`, `buildLibraryWorkout`.
+- `exercises.js`: exercise library, `REGIONS`, `EQUIPMENT_PRESETS`, `ACTIVITIES`, `estimateMinutes`, `groupOf`.
+- `planner.js`: time budgets, library plans, fitting AI plans to the time, and the AI prompts.
 - `firebase-sync.js`: Firebase Auth and Firestore wrapper (ES module, exposes `window.cloud`).
 - `sw.js`: service worker (stale-while-revalidate). **Bump its cache version whenever shell files change.**
 - `worker/`: Cloudflare Worker that proxies Gemini with tiered daily limits (see `worker/README.md`).
@@ -30,6 +31,7 @@ The primary user trains at home with dumbbells 3–4×/week and has ADHD. The tw
 - Fonts: Instrument Sans (UI) and Geist Mono (numbers and labels) from Google Fonts, cached by the service worker.
 - Keep sizes as specced. Nothing oversized. Minimum hit target 44px.
 - Accents are intentionally soft (pistachio, apricot). Don't saturate them.
+- AI prompts never contain counts or minutes as fixed numbers; the budget from `sessionBudget()` supplies them and `fitPlan()` enforces them.
 - Timers derive from timestamps (`restEndsAt`), never from decrementing counters.
 - Respect `prefers-reduced-motion`. Transitions ≤ 200ms, opacity and transform only.
 - Never commit secrets: the Gemini key and owner emails are Worker secrets. The Firebase web config is public by design.
@@ -41,6 +43,6 @@ The primary user trains at home with dumbbells 3–4×/week and has ADHD. The tw
 
 ## Testing
 - `python3 -m http.server 8000`, then open `http://localhost:8000` at a 390px viewport. Check both themes.
-- `node tests/stats.test.js` runs the unit tests for the derived stats.
+- `node tests/stats.test.js` and `node tests/planner.test.js` run the unit tests.
 - `cd worker && npm test` runs the Worker tests.
 - Before each commit, check by hand: start → complete all sets → rest auto-start and auto-end → complete → save. Then the entry appears in History, the goal count updates, and a reload mid-workout resumes the session.

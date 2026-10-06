@@ -1,4 +1,4 @@
-// Curated exercise library used when no API key is set.
+// Curated exercise library. planner.js builds plans from it and fits AI plans to the time.
 // group: muscle group / category; needs: equipment that must ALL be available
 // (bodyweight is always available).
 // unit: omitted = reps, 'sec' = reps are seconds per set, 'min' = reps are minutes (steady cardio).
@@ -226,6 +226,19 @@ const LIBRARY = [
   { name: 'Doorway chest stretch', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
   { name: 'Downward dog to cobra', group: 'mobility', needs: [], sets: 2, reps: 8 },
   { name: 'Band shoulder dislocate', group: 'mobility', needs: ['Resistance bands'], sets: 2, reps: 10 },
+  { name: 'Shoulder circles', group: 'mobility', needs: [], sets: 2, reps: 10 },
+  { name: 'Hip circles', group: 'mobility', needs: [], sets: 2, reps: 10 },
+  { name: 'Ankle circles (each side)', group: 'mobility', needs: [], sets: 2, reps: 10 },
+  { name: 'Wall slides', group: 'mobility', needs: [], sets: 2, reps: 10 },
+  { name: 'Thread the needle (each side)', group: 'mobility', needs: [], sets: 2, reps: 30, unit: 'sec' },
+  { name: 'Cobra stretch', group: 'mobility', needs: [], sets: 2, reps: 30, unit: 'sec' },
+  { name: 'Butterfly stretch', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
+  { name: 'Figure-four stretch (each side)', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
+  { name: 'Lying spinal twist (each side)', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
+  { name: 'Quad stretch (each side)', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
+  { name: 'Calf stretch (each side)', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
+  { name: 'Seated forward fold', group: 'mobility', needs: [], sets: 2, reps: 45, unit: 'sec' },
+  { name: 'Band hamstring stretch (each side)', group: 'mobility', needs: ['Resistance bands'], sets: 2, reps: 45, unit: 'sec' },
   { name: 'Foam roll upper back', group: 'mobility', needs: ['Foam roller'], sets: 1, reps: 2, unit: 'min' },
   { name: 'Foam roll quads and IT band', group: 'mobility', needs: ['Foam roller'], sets: 1, reps: 2, unit: 'min' },
   { name: 'Foam roll calves and hamstrings', group: 'mobility', needs: ['Foam roller'], sets: 1, reps: 2, unit: 'min' }
@@ -244,42 +257,6 @@ function estimateMinutes(ex) {
   const work = ex.unit === 'sec' ? ex.reps : ex.reps * 3;
   const rest = ex.group === 'mobility' ? 10 : ex.unit === 'sec' ? 30 : 60;
   return (ex.sets * (work + rest)) / 60 + 1;
-}
-
-// Builds a workout that fits `minutes` for the chosen region using only `equipment`.
-// Cycles through the region's muscle groups and prefers exercises not done recently.
-// `lastDone` maps exercise name -> timestamp of the last time it was logged.
-function buildLibraryWorkout({ minutes, region, equipment, lastDone = {} }) {
-  const have = new Set(equipment.map(e => e.toLowerCase()));
-  const available = LIBRARY.filter(ex => ex.needs.every(n => have.has(n.toLowerCase())));
-  const groups = REGIONS[region].groups;
-
-  const pools = groups.map(g =>
-    available.filter(ex => ex.group === g)
-      .map(ex => ({ ex, sort: (lastDone[ex.name] || 0) + Math.random() * 3 * 86400000 }))
-      .sort((a, b) => a.sort - b.sort)
-      .map(x => ({ ...x.ex }))
-  );
-
-  let budget = minutes * 0.9; // leave slack for warm-up and moving between exercises
-  const picked = [];
-  let added = true;
-  while (added) {
-    added = false;
-    for (const pool of pools) {
-      const i = pool.findIndex(ex => estimateMinutes(ex) <= budget);
-      if (i === -1) continue;
-      const [ex] = pool.splice(i, 1);
-      budget -= estimateMinutes(ex);
-      picked.push(ex);
-      added = true;
-    }
-  }
-  return {
-    focus: REGIONS[region].label,
-    exercises: picked.map(({ name, sets, reps, unit }) => ({ name, sets, reps, weight: 0, unit })),
-    estimatedMinutes: Math.round(picked.reduce((s, ex) => s + estimateMinutes(ex), 0))
-  };
 }
 
 // Muscle group for an exercise name: the library's group when it's a library exercise,

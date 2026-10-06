@@ -10,7 +10,8 @@ either of them.
                    │   index.html + styles.css      UI: Today, Progress, History, Settings,    │
                    │                                live workout, bottom sheets                │
                    │   app.js                       state, plan, live session, sync glue       │
-                   │   exercises.js  stats.js       exercise library · derived stats           │
+                   │   exercises.js  planner.js     exercise library · time budgets and fitting│
+                   │   stats.js                     derived stats                              │
                    │   localStorage                 source of truth for all data               │
                    │   sw.js (service worker)       caches the app shell for offline use       │
                    │                                                                          │
@@ -47,7 +48,8 @@ either of them.
 | `index.html` | Markup for every screen and sheet; applies the theme before first paint |
 | `styles.css` | Design tokens for the Day and Night themes, and all components |
 | `app.js` | App state, Today's plan, live workout, progress, history, export, sync |
-| `exercises.js` | ~170 exercises, focus areas, equipment presets and the workout builder |
+| `exercises.js` | ~185 exercises, focus areas, equipment presets and time estimates |
+| `planner.js` | Time budget per session, library plans, fitting AI plans to the time, AI prompts |
 | `stats.js` | Pure functions: weeks, weekly goal and streak, volume, lift trends, PRs |
 | `firebase-sync.js` | Firebase Auth and Firestore wrapper, exposed as `window.cloud` |
 | `sw.js` | Service worker: stale-while-revalidate cache for offline use |
@@ -56,6 +58,12 @@ either of them.
 - **Today.** On open, a plan is built from the library for the automatic focus
   (rotating upper → lower → full body). If AI is on, a better plan is requested in the
   background and swapped in. The plan is kept for the day.
+- **Time budget.** `planner.js` turns the minutes and focus into a budget: 2–3 minutes
+  for warm-up, a session kind (quick ≤ 20 min, strength, core, cardio, mobility, or
+  recovery for short mobility), a target exercise count (soft cap of 8 for strength) and
+  a limit of about 10% over. Library and AI plans both go through `fitPlan()`, which
+  matches names to the library, trims plans that run long and tops up ones that are
+  well short.
 - **Live workout.** A session object (exercises, sets done, current set, rest end time)
   is saved to `localStorage` on every change, so a reload or locked phone resumes it.
   The rest timer is computed from a timestamp, not a countdown.
@@ -88,7 +96,8 @@ Sync runs on sign-in, on demand and when the app returns to the foreground. Work
 merge by id, and deletions on one device are removed on the others.
 
 ## AI planning
-1. The app sends the system prompt, the user prompt (minutes, focus, equipment, last 10
+1. The app sends the system prompt (a shared base plus rules for the session kind), the
+   user prompt (the budget, equipment, a shortlist of library exercises and the last 10
    entries) and a JSON schema to the Worker. Signed-in Google users attach their
    Firebase ID token.
 2. The Worker checks the origin and request size, verifies the token, picks a tier and
@@ -96,7 +105,7 @@ merge by id, and deletions on one device are removed on the others.
    Pacific).
 3. The Worker calls Gemini with the model, output limit and temperature it chooses, and
    returns the JSON plan.
-4. The app validates the plan, prefers the user's logged weights, and shows it.
+4. The app fits the plan to the time budget, prefers the user's logged weights, and shows it.
 
 | Tier | Who | Daily limit |
 |---|---|---|
@@ -106,5 +115,6 @@ merge by id, and deletions on one device are removed on the others.
 
 ## Testing
 - `node tests/stats.test.js`: unit tests for the derived stats.
+- `node tests/planner.test.js`: time budgets, fitting and prompt sizes for every focus and length.
 - `cd worker && npm test`: Worker tests (auth, tiers, limits, day rollover, Gemini errors).
 - The UI is checked in a browser at a phone-sized viewport in both themes.

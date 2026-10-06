@@ -60,6 +60,17 @@ Each phase ships on its own branch and is merged to `main` after testing.
 - [x] Lifts going up: top 3 by weight gain, 6-session sparkline
 - [x] History: 30-day calendar, volume bars, ACT / PR tags, ⋯ to delete
 
+## AI planning quality · `feature/ai-prompts`
+Decisions: sessions of 20 minutes or less are quick workouts (recovery for mobility);
+2–3 minutes go to warm-up; a soft cap of 8 different exercises (at 60 minutes); a little
+short is fine, but a plan well short gets an exercise that fits; running a few minutes
+over is fine, scaled to the session length. The app, not the prompt, owns counts and sets.
+- [x] `planner.js`: time budget per session, library plans, `fitPlan()` for AI plans
+- [x] Prompts: shared base plus a block per session kind; no fixed counts in the prompt
+- [x] AI picks from a shortlist of library exercises; names matched to the library
+- [x] 13 more mobility moves so long mobility sessions can fill
+- [x] Unit tests for budgets, fitting and prompt sizes
+
 ## Later
 - [ ] Recovery map: readiness per muscle group from everything logged, fed into the focus pick and the AI prompt
 - [ ] Routines, including a bodyweight "Bad-day 10" starter

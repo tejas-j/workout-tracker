@@ -1,7 +1,7 @@
 // Stale-while-revalidate for the app shell, the Firebase SDK and Google Fonts,
 // so the app opens offline.
-const CACHE = 'training-log-v8';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'exercises.js', 'stats.js', 'firebase-sync.js', 'manifest.webmanifest',
+const CACHE = 'training-log-v9';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'exercises.js', 'planner.js', 'stats.js', 'firebase-sync.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {

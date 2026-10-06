@@ -592,8 +592,7 @@ function withLastWeights(exercises) {
   return exercises.map(e => weights[e.name] ? { ...e, weight: weights[e.name] } : e);
 }
 function libraryWorkout(mins, region) {
-  const w = buildLibraryWorkout({ minutes: mins, region, equipment, lastDone: lastDoneMap() });
-  return { ...w, exercises: withLastWeights(w.exercises) };
+  return { exercises: withLastWeights(libraryPlan({ minutes: mins, region, equipment, lastDone: lastDoneMap() })) };
 }
 
 // Builds today's plan from the library right away, then asks the AI for a better one
@@ -618,7 +617,9 @@ async function requestAiPlan() {
   try {
     const ai = await aiSuggestion(mins, focus);
     if (token !== planToken || plan.focus !== focus || plan.minutes !== mins) return;
-    plan = { ...plan, source: 'ai', label: ai.focus, reason: ai.reason, exercises: withLastWeights(ai.exercises) };
+    // The AI picks the exercises; the planner makes them fit the time and match the library.
+    const fitted = fitPlan(ai.exercises, { region: focus, minutes: mins, equipment, lastDone: lastDoneMap() });
+    plan = { ...plan, source: 'ai', label: ai.focus, reason: ai.reason, exercises: withLastWeights(fitted) };
     save(PLAN_STORAGE, plan);
     renderToday();
     setStatus('planStatus', Number.isFinite(ai.remaining) && ai.remaining <= 3
@@ -700,21 +701,14 @@ $('focusChips').addEventListener('click', e => {
 
 // Asks the AI proxy for a workout. Signed-in Google users send their ID token for the higher limit.
 async function aiSuggestion(mins, region) {
-  const regionLabel = REGIONS[region].label;
-  const recent = workouts.slice(0, 10).map(w => w.type === 'activity'
+  const history = workouts.slice(0, 10).map(w => w.type === 'activity'
     ? { date: localDate(w.date), activity: `${w.activity} ${w.duration}min${w.effort ? ' ' + w.effort : ''}` }
     : { date: localDate(w.date), focus: shortLabel(w.region),
         exercises: w.exercises.map(e => `${e.name} ${e.sets}x${fmtReps(e)}${e.weight ? '@' + e.weight + 'lb' : ''}`) });
-  const systemPrompt = `You plan a single home strength workout. Use ONLY the equipment listed by the user (plus bodyweight). Respond with ONLY valid JSON matching this shape:
-{"focus": "short label like 'Upper body push'", "reason": "one sentence", "exercises": [{"name": "string", "sets": number, "reps": number, "weight": number, "unit": "reps" or "sec" or "min"}]}
-Use unit "sec" (reps = seconds per set) for holds and timed intervals, and "min" (reps = minutes) for steady cardio blocks. Weight is in lb, 0 for bodyweight; when an exercise appears in the history, base its weight on that, adding 5 lb if all sets were completed last time. Pick a number of exercises that fits the given minutes (roughly 5-8 minutes per exercise including rest). Hit the requested focus area. History may include sports or cardio activities; account for their fatigue (e.g. go easier on legs after a long hike). Vary exercises and avoid repeating the same movements as recent history when possible.
-"reason" is one friendly sentence of at most 20 words telling the user why this workout suits today, referring to their recent history when it helps. No exclamation marks.`;
-  const userPrompt = `Today is ${today()}.
-Minutes available: ${mins}.
-Focus: ${regionLabel}.
-Equipment: ${equipment.length ? equipment.join(', ') : 'none'}.
-Recent history (most recent first): ${recent.length ? JSON.stringify(recent) : 'none logged yet'}.
-Plan today's workout.`;
+  const { system: systemPrompt, prompt: userPrompt } = buildPlanPrompts({
+    region, minutes: mins, equipment, history, today: today(),
+    candidates: candidateExercises(region, equipment, lastDoneMap())
+  });
 
   const call = async forceRefresh => {
     const headers = { 'Content-Type': 'application/json' };
