@@ -39,6 +39,8 @@ lifts go up. Walks, runs and sports count too.
 
 ## How it works
 
+See [docs/architecture.md](docs/architecture.md) for a diagram and an overview of the data flow.
+
 | Layer | Implementation |
 |---|---|
 | UI | Single-page vanilla HTML/CSS/JS, no build step or framework |
